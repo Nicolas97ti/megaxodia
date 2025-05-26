@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Megaxodia - Sorteador de Times</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700;900&display=swap" rel="stylesheet">
+</head>
+<body>
+    <header>
+        <div class="container header-content">
+            <div class="logo-container">
+                <img src="img/MEGAXODIA.png" alt="Megaxodia Logo" class="logo">
+                <h1>MEGAXODIA</h1>
+            </div>
+            <nav>
+                <button id="nav-home" class="nav-button active">Sobre o Megaxodia</button>
+                <button id="nav-sorteador" class="nav-button">Sorteador de Times</button>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <!-- Página Sobre o Megaxodia -->
+        <section id="home-section" class="content-section">
+            <h2>Sobre o Megaxodia</h2>
+            <div class="about-content-centered">
+                <img src="img/MEGAXODIA.png" alt="Megaxodia Logo" class="about-logo-large">
+                <div class="about-text">
+                    <p class="lead">
+                        O Megaxodia é um grupo de amigos apaixonados por League of Legends que se reunem regularmente para jogar, competir e se divertir juntos. Nossa história começou quando um grupo de jogadores entusiastas decidiu formar uma equipe para participar de torneios amadores e, desde então, evoluímos para uma comunidade unida pela paixão pelo jogo.
+                    </p>
+                    <p>
+                        Inspirado no poderoso Exodia de Yu-Gi-Oh, nosso grupo busca a mesma sinergia e poder quando nos unimos nas partidas. Cada membro traz habilidades únicas que, quando combinadas, formam uma equipe imbatível. Assim como as cinco peças do Exodia formam uma entidade invencível, nossos jogadores, quando juntos, criam estratégias devastadoras que surpreendem os adversários.
+                    </p>
+                    <p>
+                        Nossa filosofia é baseada no equilíbrio entre competição e diversão. Acreditamos que o verdadeiro espírito do League of Legends está na cooperação entre os jogadores, na estratégia bem executada e na superação de desafios como equipe. Cada vitória é celebrada com entusiasmo, e cada derrota é vista como uma oportunidade de aprendizado e crescimento.
+                    </p>
+                    <p>
+                        Utilizamos o sorteador de times para organizar nossas partidas internas de forma justa e divertida, garantindo que todos tenham a chance de jogar em diferentes posições e com diferentes companheiros de equipe. Isso não apenas mantém o jogo interessante, mas também ajuda cada jogador a desenvolver habilidades em múltiplas funções e a entender melhor a dinâmica do jogo como um todo.
+                    </p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Página Sorteador de Times -->
+        <section id="sorteador-section" class="content-section hidden">
+            <h2>Sorteador de Times</h2>
+            
+            <div id="input-section">
+                <div class="players-input-container">
+                    <label for="players-input" class="players-input-label">Nomes dos Jogadores:</label>
+                    <textarea id="players-input" class="players-input-area" placeholder="Digite os nomes dos jogadores separados por vírgula ou quebra de linha (de 1 a 10 nomes)"></textarea>
+                </div>
+                
+                <div class="options-section">
+                    <div class="reveal-options">
+                        <h3>Modo de Revelação:</h3>
+                        <div class="options-container">
+                            <label>
+                                <input type="radio" name="revealMode" value="all" checked>
+                                <span>Revelar todos</span>
+                            </label>
+                            <label>
+                                <input type="radio" name="revealMode" value="gradual">
+                                <span>Revelação misteriosa</span>
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div class="team-options">
+                        <h3>Equipe para Sorteio:</h3>
+                        <div class="options-container">
+                            <label>
+                                <input type="radio" name="teamOption" value="both" checked>
+                                <span>Ambos os times</span>
+                            </label>
+                            <label>
+                                <input type="radio" name="teamOption" value="blue">
+                                <span>Apenas Time Azul</span>
+                            </label>
+                            <label>
+                                <input type="radio" name="teamOption" value="red">
+                                <span>Apenas Time Vermelho</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                
+                <button id="shuffle-button" class="cta-button">Sortear Times</button>
+            </div>
+            
+            <div id="results-section" class="hidden">
+                <div id="list-view">
+                    <div class="team-container">
+                        <h3 class="team-blue-title">Time Azul</h3>
+                        <div class="team-grid blue-team">
+                            <!-- Jogadores do time azul serão gerados via JavaScript -->
+                        </div>
+                    </div>
+                    
+                    <div class="team-container">
+                        <h3 class="team-red-title">Time Vermelho</h3>
+                        <div class="team-grid red-team">
+                            <!-- Jogadores do time vermelho serão gerados via JavaScript -->
+                        </div>
+                    </div>
+                </div>
+                
+                <div id="map-view">
+                    <h3>Visualização no Mapa</h3>
+                    <div class="map-container">
+                        <div class="map-background"></div>
+                        
+                        <!-- Posições do time azul -->
+                        <div class="map-position blue-top" data-team="blue" data-index="0">
+                            <div class="position-name">TOP</div>
+                            <div class="player-name">???</div>
+                        </div>
+                        <div class="map-position blue-jungle" data-team="blue" data-index="1">
+                            <div class="position-name">JUNGLE</div>
+                            <div class="player-name">???</div>
+                        </div>
+                        <div class="map-position blue-mid" data-team="blue" data-index="2">
+                            <div class="position-name">MID</div>
+                            <div class="player-name">???</div>
+                        </div>
+                        <div class="map-position blue-adc" data-team="blue" data-index="3">
+                            <div class="position-name">ADC</div>
+                            <div class="player-name">???</div>
+                        </div>
+                        <div class="map-position blue-support" data-team="blue" data-index="4">
+                            <div class="position-name">SUPPORT</div>
+                            <div class="player-name">???</div>
+                        </div>
+                        
+                        <!-- Posições do time vermelho -->
+                        <div class="map-position red-top" data-team="red" data-index="0">
+                            <div class="position-name">TOP</div>
+                            <div class="player-name">???</div>
+                        </div>
+                        <div class="map-position red-jungle" data-team="red" data-index="1">
+                            <div class="position-name">JUNGLE</div>
+                            <div class="player-name">???</div>
+                        </div>
+                        <div class="map-position red-mid" data-team="red" data-index="2">
+                            <div class="position-name">MID</div>
+                            <div class="player-name">???</div>
+                        </div>
+                        <div class="map-position red-adc" data-team="red" data-index="3">
+                            <div class="position-name">ADC</div>
+                            <div class="player-name">???</div>
+                        </div>
+                        <div class="map-position red-support" data-team="red" data-index="4">
+                            <div class="position-name">SUPPORT</div>
+                            <div class="player-name">???</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="results-buttons">
+                    <button id="new-shuffle-button" class="cta-button">Novo Sorteio</button>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; <span id="current-year"></span> Megaxodia - Todos os direitos reservados</p>
+        </div>
+    </footer>
+
+    <script src="script.js"></script>
+</body>
+</html>
