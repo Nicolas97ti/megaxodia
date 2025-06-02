@@ -220,7 +220,6 @@ h4 {
 /* Resultados do sorteio */
 .team-container {
     margin-bottom: 30px;
-    /* min-height removido daqui para controle mais fino */
 }
 
 .team-blue-title {
@@ -235,8 +234,8 @@ h4 {
     display: grid;
     grid-template-columns: 1fr;
     gap: 10px;
-    min-height: 80px; /* <<< Adicionado: Garante altura mínima para o grid */
-    margin-bottom: 15px; /* <<< Adicionado: Espaço entre grid e botão */
+    min-height: 80px; 
+    margin-bottom: 15px; 
 }
 
 .player-card {
@@ -245,8 +244,8 @@ h4 {
     text-align: center;
     transition: all 0.3s ease;
     cursor: pointer;
-    min-height: 60px; /* <<< Adicionado: Garante altura mínima para o card */
-    display: flex; /* Para centralizar conteúdo verticalmente se necessário */
+    min-height: 60px; 
+    display: flex; 
     flex-direction: column;
     justify-content: center;
 }
@@ -273,14 +272,16 @@ h4 {
 }
 
 .player-name {
-    font-size: 0.9rem; /* Ajustado para melhor leitura */
-    min-height: 1.2em; /* <<< Adicionado: Garante espaço mesmo com '???' */
+    font-size: 0.9rem; 
+    min-height: 1.2em; 
 }
 
-/* <<< Novo: Estilo para o container do botão de cópia >>> */
+/* <<< Alterado: Estilo para o container dos botões de time >>> */
 .team-copy-button-container {
-    text-align: center; /* Centraliza o botão */
-    /* margin-top: 15px; Removido, usando margin-bottom no grid */
+    display: flex; /* Usa flexbox para alinhar botões */
+    justify-content: center; /* Centraliza os botões */
+    gap: 15px; /* <<< Adicionado: Espaçamento entre os botões */
+    margin-top: 10px; /* Adiciona um pequeno espaço acima dos botões */
 }
 
 /* Visualização do mapa */
@@ -321,7 +322,7 @@ h4 {
     transition: all 0.3s ease;
     border: 2px solid var(--white);
     font-size: 0.8rem;
-    text-align: center; /* Garante centralização do texto */
+    text-align: center; 
 }
 
 .map-position:hover {
@@ -346,13 +347,13 @@ h4 {
     font-size: 0.7rem;
 }
 
-.map-position .player-name { /* <<< Especificidade aumentada >>> */
+.map-position .player-name { 
     font-size: 0.7rem;
-    max-width: 90%; /* Evita transbordar */
+    max-width: 90%; 
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    min-height: 1em; /* Garante espaço mesmo com '???' */
+    min-height: 1em; 
 }
 
 /* Posições no mapa */
@@ -372,7 +373,7 @@ h4 {
     flex-direction: column;
     gap: 15px;
     align-items: center;
-    margin-top: 30px; /* Adiciona espaço acima dos botões gerais */
+    margin-top: 30px; 
 }
 
 .secondary-button {
@@ -407,9 +408,7 @@ footer {
     padding: 20px 0;
     text-align: center;
     width: 100%;
-    /* position: sticky; Removido para evitar sobreposição */
-    /* bottom: 0; */
-    margin-top: auto; /* Empurra para o final */
+    margin-top: auto; 
 }
 
 footer p {
@@ -442,7 +441,7 @@ footer p {
     }
     .team-grid {
         grid-template-columns: repeat(5, 1fr);
-        min-height: 100px; /* Altura mínima maior em telas grandes */
+        min-height: 100px; 
     }
     .map-position {
         width: 80px;
@@ -465,7 +464,7 @@ footer p {
         font-size: 0.6rem;
     }
     .player-card .player-name {
-         font-size: 0.8rem; /* Ajuste para telas menores */
+         font-size: 0.8rem; 
     }
 }
 

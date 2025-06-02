@@ -11,12 +11,12 @@ document.addEventListener("DOMContentLoaded", function() {
     const playersInput = document.getElementById("players-input");
     const shuffleButton = document.getElementById("shuffle-button");
     const newShuffleButton = document.getElementById("new-shuffle-button");
-    const copyTeamsButton = document.getElementById("copy-teams-button"); // Botão geral
+    const copyTeamsButton = document.getElementById("copy-teams-button");
     const blueTeamGrid = document.querySelector(".blue-team");
     const redTeamGrid = document.querySelector(".red-team");
     const mapView = document.getElementById("map-view");
-    const blueCopyContainer = blueTeamGrid.nextElementSibling;
-    const redCopyContainer = redTeamGrid.nextElementSibling;
+    const blueButtonContainer = document.getElementById("blue-team-buttons"); 
+    const redButtonContainer = document.getElementById("red-team-buttons");   
 
     // Configuração inicial
     const currentYear = document.getElementById("current-year");
@@ -34,33 +34,42 @@ document.addEventListener("DOMContentLoaded", function() {
     init();
 
     function init() {
-        currentYear.textContent = new Date().getFullYear();
-
-        document.querySelectorAll("input[name='revealMode']").forEach(radio => {
+        if (currentYear) {
+             currentYear.textContent = new Date().getFullYear();
+        }
+       
+        document.querySelectorAll("input[name=\'revealMode\']").forEach(radio => {
             radio.addEventListener("change", function() {
                 revealMode = this.value;
             });
         });
 
-        document.querySelectorAll("input[name='teamOption']").forEach(radio => {
+        document.querySelectorAll("input[name=\'teamOption\']").forEach(radio => {
             radio.addEventListener("change", function() {
                 teamOption = this.value;
             });
         });
 
-        navHome.addEventListener("click", showHomeSection);
-        navSorteador.addEventListener("click", showSorteadorSection);
-        shuffleButton.addEventListener("click", handleShuffle);
-        newShuffleButton.addEventListener("click", resetShuffle);
-        copyTeamsButton.addEventListener("click", () => copyTeamsToClipboard(copyTeamsButton));
-
-        // Listeners de clique para revelação (delegação)
-        blueTeamGrid.addEventListener("click", handlePlayerClick);
-        redTeamGrid.addEventListener("click", handlePlayerClick);
-        mapView.addEventListener("click", handlePlayerClick);
+        if (navHome) navHome.addEventListener("click", showHomeSection);
+        if (navSorteador) navSorteador.addEventListener("click", showSorteadorSection);
+        if (shuffleButton) shuffleButton.addEventListener("click", handleShuffle);
+        if (newShuffleButton) newShuffleButton.addEventListener("click", resetShuffle);
+        if (copyTeamsButton) copyTeamsButton.addEventListener("click", () => copyTeamsToClipboard(copyTeamsButton));
+        if (blueTeamGrid) blueTeamGrid.addEventListener("click", handlePlayerClick);
+        if (redTeamGrid) redTeamGrid.addEventListener("click", handlePlayerClick);
+        if (mapView) mapView.addEventListener("click", handlePlayerClick);
+        
+        if (navHome && navHome.classList.contains("active")) {
+            showHomeSection();
+        } else if (navSorteador && navSorteador.classList.contains("active")) {
+            showSorteadorSection();
+        } else {
+             showHomeSection();
+        }
     }
 
     function showHomeSection() {
+        if (!navHome || !navSorteador || !homeSection || !sorteadorSection) return;
         navHome.classList.add("active");
         navSorteador.classList.remove("active");
         homeSection.classList.remove("hidden");
@@ -69,6 +78,7 @@ document.addEventListener("DOMContentLoaded", function() {
     }
 
     function showSorteadorSection() {
+        if (!navHome || !navSorteador || !homeSection || !sorteadorSection) return;
         navHome.classList.remove("active");
         navSorteador.classList.add("active");
         homeSection.classList.add("hidden");
@@ -76,6 +86,7 @@ document.addEventListener("DOMContentLoaded", function() {
     }
 
     function handleShuffle() {
+        if (!playersInput) return;
         const inputText = playersInput.value.trim();
         let inputPlayers = inputText.split(/[,\n]+/).map(name => name.trim()).filter(name => name !== "");
 
@@ -89,7 +100,41 @@ document.addEventListener("DOMContentLoaded", function() {
         }
 
         players = inputPlayers;
-        const shuffled = shuffleArray(players);
+        performShuffle(players);
+    }
+
+    function handleSingleTeamShuffle(teamColor) { // Renomeado de handleSingleTeamReshuffle
+        if (!teams[teamColor] || teams[teamColor].length === 0) {
+            alert(`Não há jogadores no Time ${teamColor === 'blue' ? 'Azul' : 'Vermelho'} para sortear.`);
+            return;
+        }
+
+        const teamPlayerNames = teams[teamColor].map(player => player.name).filter(name => name !== "???");
+        if (teamPlayerNames.length === 0) {
+             alert(`Não é possível sortear um time com nomes não revelados ou vazios.`);
+             return;
+        }
+
+        const shuffledNames = shuffleArray(teamPlayerNames);
+
+        const positions = teams[teamColor].map(player => player.position);
+        teams[teamColor] = positions.map((pos, idx) => ({
+            name: shuffledNames[idx] || "???", 
+            position: pos
+        }));
+
+        revealedOnClick.forEach(key => {
+            if (key.startsWith(teamColor + "-")) {
+                revealedOnClick.delete(key);
+            }
+        });
+
+        updateTeamDisplay(teamColor);
+        updateMapDisplay(teamColor);
+    }
+
+    function performShuffle(playerList) {
+        const shuffled = shuffleArray(playerList);
         const positions = ["Top", "Jungle", "Mid", "ADC", "Support"];
 
         teams.blue = [];
@@ -104,29 +149,24 @@ document.addEventListener("DOMContentLoaded", function() {
             teams.red = positions.map((pos, idx) => ({ name: redTeam[idx] || "???", position: pos }));
         }
 
-        // Resetar estados de revelação
         if (gradualRevealTimer) {
             clearInterval(gradualRevealTimer);
             gradualRevealTimer = null;
         }
         gradualRevealCount = 0;
-        revealedOnClick.clear();
+        revealedOnClick.clear(); 
 
-        // Exibir resultados (cria cards e botões)
         displayResults();
+        updateInitialVisualState(); 
 
-        // Configurar estado inicial visual baseado no modo
-        updateInitialVisualState();
-
-        // Iniciar timer se for modo gradual
         if (revealMode === "gradual") {
             const totalPlayers = (teams.blue.length + teams.red.length);
             if (totalPlayers > 0) {
                 gradualRevealTimer = setInterval(function() {
                     if (gradualRevealCount < totalPlayers) {
                         gradualRevealCount++;
-                        updateRevealedPlayers(); // Atualiza nomes gradualmente
-                        updateMapPositions();    // Atualiza nomes gradualmente
+                        updateRevealedPlayers();
+                        updateMapPositions();
                     } else {
                         clearInterval(gradualRevealTimer);
                         gradualRevealTimer = null;
@@ -146,53 +186,71 @@ document.addEventListener("DOMContentLoaded", function() {
     }
 
     function displayResults() {
+        if (!inputSection || !resultsSection || !blueTeamGrid || !redTeamGrid || !blueButtonContainer || !redButtonContainer) return;
+        
         inputSection.classList.add("hidden");
         resultsSection.classList.remove("hidden");
 
         blueTeamGrid.innerHTML = "";
         redTeamGrid.innerHTML = "";
-        blueCopyContainer.innerHTML = "";
-        redCopyContainer.innerHTML = "";
+        blueButtonContainer.innerHTML = ""; 
+        redButtonContainer.innerHTML = "";  
 
-        const teamBlueContainer = blueTeamGrid.closest('.team-container');
-        const teamRedContainer = redTeamGrid.closest('.team-container');
+        const teamBlueContainer = blueTeamGrid.closest(".team-container");
+        const teamRedContainer = redTeamGrid.closest(".team-container");
 
-        if (teams.blue.length > 0) {
-            teamBlueContainer.classList.remove("hidden");
-            teams.blue.forEach((player, index) => {
-                const playerCard = createPlayerCard("blue", player, index);
-                blueTeamGrid.appendChild(playerCard);
-            });
-            const copyBlueButton = createCopyButton("blue");
-            blueCopyContainer.appendChild(copyBlueButton);
-        } else {
-            teamBlueContainer.classList.add("hidden");
+        if (teamBlueContainer) {
+            if (teams.blue.length > 0) {
+                teamBlueContainer.classList.remove("hidden");
+                teams.blue.forEach((player, index) => {
+                    const playerCard = createPlayerCard("blue", player, index);
+                    blueTeamGrid.appendChild(playerCard);
+                });
+                const copyBlueButton = createCopyButton("blue");
+                const shuffleBlueButton = createShuffleTeamButton("blue"); // Renomeado de createReshuffleButton
+                blueButtonContainer.appendChild(copyBlueButton);
+                blueButtonContainer.appendChild(shuffleBlueButton);
+            } else {
+                teamBlueContainer.classList.add("hidden");
+            }
         }
 
-        if (teams.red.length > 0) {
-            teamRedContainer.classList.remove("hidden");
-            teams.red.forEach((player, index) => {
-                const playerCard = createPlayerCard("red", player, index);
-                redTeamGrid.appendChild(playerCard);
-            });
-            const copyRedButton = createCopyButton("red");
-            redCopyContainer.appendChild(copyRedButton);
-        } else {
-            teamRedContainer.classList.add("hidden");
+        if (teamRedContainer) {
+             if (teams.red.length > 0) {
+                teamRedContainer.classList.remove("hidden");
+                teams.red.forEach((player, index) => {
+                    const playerCard = createPlayerCard("red", player, index);
+                    redTeamGrid.appendChild(playerCard);
+                });
+                const copyRedButton = createCopyButton("red");
+                const shuffleRedButton = createShuffleTeamButton("red"); // Renomeado de createReshuffleButton
+                redButtonContainer.appendChild(copyRedButton);
+                redButtonContainer.appendChild(shuffleRedButton);
+            } else {
+                teamRedContainer.classList.add("hidden");
+            }
         }
     }
 
     function createCopyButton(teamColor) {
         const button = document.createElement("button");
-        button.className = "secondary-button team-copy-button";
+        button.className = "secondary-button team-action-button"; 
         button.textContent = `Copiar Time ${teamColor === 'blue' ? 'Azul' : 'Vermelho'}`;
         button.addEventListener("click", () => copySingleTeamToClipboard(teamColor, button));
         return button;
     }
 
+    // <<< Função Renomeada e Texto Alterado >>>
+    function createShuffleTeamButton(teamColor) { // Renomeado de createReshuffleButton
+        const button = document.createElement("button");
+        button.className = "secondary-button team-action-button"; 
+        button.textContent = `Sortear Time ${teamColor === 'blue' ? 'Azul' : 'Vermelho'}`; // Texto alterado
+        button.addEventListener("click", () => handleSingleTeamShuffle(teamColor)); // Chama a função renomeada
+        return button;
+    }
+
     function createPlayerCard(team, player, index) {
         const playerCard = document.createElement("div");
-        // <<< Inicia sempre com 'hidden' (cinza) e '???' - updateInitialVisualState ajustará >>>
         playerCard.className = "player-card hidden";
         playerCard.dataset.team = team;
         playerCard.dataset.index = index;
@@ -210,108 +268,102 @@ document.addEventListener("DOMContentLoaded", function() {
         return playerCard;
     }
 
-    // <<< NOVO: Define o estado visual inicial após o sorteio >>>
-    function updateInitialVisualState() {
-        document.querySelectorAll(".player-card").forEach(card => {
-            const team = card.dataset.team;
+    function updateTeamDisplay(teamColor) {
+        document.querySelectorAll(`.player-card[data-team="${teamColor}"]`).forEach(card => {
+            const index = parseInt(card.dataset.index);
             const playerNameElement = card.querySelector(".player-name");
-            playerNameElement.textContent = "???"; // Garante ??? inicial
+            if (!playerNameElement || !teams[teamColor] || !teams[teamColor][index]) return;
+
+            playerNameElement.textContent = "???"; 
 
             if (revealMode === 'click') {
-                // Mostra card colorido, mas nome oculto
                 card.classList.remove("hidden");
-                card.classList.add(team);
-                card.classList.remove(team === 'blue' ? 'red' : 'blue'); // Garante cor correta
+                card.classList.add(teamColor);
+                card.classList.remove(teamColor === 'blue' ? 'red' : 'blue');
             } else if (revealMode === 'all') {
-                // Mostra card colorido e nome revelado
                 card.classList.remove("hidden");
-                card.classList.add(team);
-                card.classList.remove(team === 'blue' ? 'red' : 'blue');
-                playerNameElement.textContent = teams[team][parseInt(card.dataset.index)].name;
-            } else { // gradual (ou default)
-                // Começa cinza e oculto
+                card.classList.add(teamColor);
+                card.classList.remove(teamColor === 'blue' ? 'red' : 'blue');
+                playerNameElement.textContent = teams[teamColor][index].name;
+            } else { 
                 card.classList.add("hidden");
                 card.classList.remove("blue", "red");
             }
         });
+    }
 
-        document.querySelectorAll(".map-position").forEach(pos => {
-            const team = pos.dataset.team;
+    function updateMapDisplay(teamColor) {
+        document.querySelectorAll(`.map-position[data-team="${teamColor}"]`).forEach(pos => {
+            const index = parseInt(pos.dataset.index);
             const playerNameElement = pos.querySelector(".player-name");
-            playerNameElement.textContent = "???"; // Garante ??? inicial
+            if (!playerNameElement || !teams[teamColor] || !teams[teamColor][index]) return;
 
-            // Mostra/esconde times inteiros no mapa
-            pos.style.display = teams[team] && teams[team].length > 0 ? "" : "none";
+            playerNameElement.textContent = "???"; 
+            pos.style.display = teams[teamColor] && teams[teamColor].length > 0 ? "flex" : "none";
             if (pos.style.display === "none") return;
 
             if (revealMode === 'click') {
-                // Mostra posição colorida, mas nome oculto
                 pos.classList.remove("hidden");
-                pos.classList.add(`${team}-revealed`);
-                pos.classList.remove(team === 'blue' ? 'red-revealed' : 'blue-revealed'); // Garante cor correta
+                pos.classList.add(`${teamColor}-revealed`);
+                pos.classList.remove(teamColor === 'blue' ? 'red-revealed' : 'blue-revealed');
             } else if (revealMode === 'all') {
-                // Mostra posição colorida e nome revelado
                 pos.classList.remove("hidden");
-                pos.classList.add(`${team}-revealed`);
-                pos.classList.remove(team === 'blue' ? 'red-revealed' : 'blue-revealed');
-                playerNameElement.textContent = teams[team][parseInt(pos.dataset.index)].name;
-            } else { // gradual (ou default)
-                // Começa cinza e oculto
+                pos.classList.add(`${teamColor}-revealed`);
+                pos.classList.remove(teamColor === 'blue' ? 'red-revealed' : 'blue-revealed');
+                playerNameElement.textContent = teams[teamColor][index].name;
+            } else { 
                 pos.classList.add("hidden");
                 pos.classList.remove("blue-revealed", "red-revealed");
             }
         });
     }
 
+    function updateInitialVisualState() {
+        updateTeamDisplay("blue");
+        updateTeamDisplay("red");
+        updateMapDisplay("blue");
+        updateMapDisplay("red");
+    }
+
     function handlePlayerClick(event) {
         if (revealMode !== "click") return;
-
         const target = event.target.closest(".player-card, .map-position");
         if (!target) return;
-
         const team = target.dataset.team;
         const index = parseInt(target.dataset.index);
-
-        if (team && index >= 0 && !revealedOnClick.has(`${team}-${index}`)) {
+        if (team && typeof index === 'number' && !isNaN(index) && !revealedOnClick.has(`${team}-${index}`)) {
              revealPlayer(team, index);
         }
     }
 
-    // <<< Modificado: Apenas revela o NOME, cor/visibilidade já tratada >>>
     function revealPlayer(team, index) {
         revealedOnClick.add(`${team}-${index}`);
-
-        // Atualiza nome no card
         const playerCard = document.querySelector(`.player-card[data-team="${team}"][data-index="${index}"]`);
         if (playerCard && teams[team] && teams[team][index]) {
-            playerCard.querySelector(".player-name").textContent = teams[team][index].name;
+            const nameElement = playerCard.querySelector(".player-name");
+            if(nameElement) nameElement.textContent = teams[team][index].name;
         }
-
-        // Atualiza nome na posição do mapa
         const mapPosition = document.querySelector(`.map-position[data-team="${team}"][data-index="${index}"]`);
         if (mapPosition && teams[team] && teams[team][index]) {
-            mapPosition.querySelector(".player-name").textContent = teams[team][index].name;
+             const nameElement = mapPosition.querySelector(".player-name");
+             if(nameElement) nameElement.textContent = teams[team][index].name;
         }
     }
 
-    // <<< Modificado: Controla apenas a revelação gradual de NOMES >>>
     function updateRevealedPlayers() {
-        // Só relevante para modo gradual agora
         if (revealMode !== 'gradual') return;
-
         document.querySelectorAll(".player-card").forEach(card => {
             const team = card.dataset.team;
             const index = parseInt(card.dataset.index);
             const playerNameElement = card.querySelector(".player-name");
+            if (!playerNameElement || !teams[team] || !teams[team][index]) return;
 
-            if (isPlayerRevealed(team, index) && teams[team] && teams[team][index]) {
-                // Revela card e nome
+            if (isPlayerRevealed(team, index)) {
                 card.classList.remove("hidden");
                 card.classList.add(team);
                 playerNameElement.textContent = teams[team][index].name;
             } else {
-                // Mantém oculto (se ainda não chegou a vez)
-                if (!card.classList.contains(team)) { // Só mexe se não foi revelado ainda
+                if (!card.classList.contains(team)) {
                     card.classList.add("hidden");
                     card.classList.remove("blue", "red");
                     playerNameElement.textContent = "???";
@@ -320,27 +372,23 @@ document.addEventListener("DOMContentLoaded", function() {
         });
     }
 
-    // <<< Modificado: Controla apenas a revelação gradual de NOMES no mapa >>>
     function updateMapPositions() {
-        // Só relevante para modo gradual agora
         if (revealMode !== 'gradual') return;
-
         document.querySelectorAll(".map-position").forEach(pos => {
             const team = pos.dataset.team;
             const index = parseInt(pos.dataset.index);
             const playerNameElement = pos.querySelector(".player-name");
+            if (!playerNameElement || !teams[team] || !teams[team][index]) return;
 
-            pos.style.display = teams[team] && teams[team].length > 0 ? "" : "none";
+            pos.style.display = teams[team] && teams[team].length > 0 ? "flex" : "none";
             if (pos.style.display === "none") return;
 
-            if (isPlayerRevealed(team, index) && teams[team] && teams[team][index]) {
-                // Revela posição e nome
+            if (isPlayerRevealed(team, index)) {
                 pos.classList.remove("hidden");
                 pos.classList.add(`${team}-revealed`);
                 playerNameElement.textContent = teams[team][index].name;
             } else {
-                 // Mantém oculto (se ainda não chegou a vez)
-                 if (!pos.classList.contains(`${team}-revealed`)) { // Só mexe se não foi revelado ainda
+                 if (!pos.classList.contains(`${team}-revealed`)) {
                     pos.classList.add("hidden");
                     pos.classList.remove("blue-revealed", "red-revealed");
                     playerNameElement.textContent = "???";
@@ -349,7 +397,6 @@ document.addEventListener("DOMContentLoaded", function() {
         });
     }
 
-    // Função auxiliar para verificar se o nome deve ser revelado (usado por gradual e click)
     function isPlayerRevealed(team, index) {
         if (revealMode === "all") return true;
         if (revealMode === "click") return revealedOnClick.has(`${team}-${index}`);
@@ -362,29 +409,27 @@ document.addEventListener("DOMContentLoaded", function() {
             }
             return playerIndex < gradualRevealCount;
         }
-        return false; // Default para outros casos (nenhum atualmente)
+        return false;
     }
 
     function resetShuffle() {
+        if (!resultsSection || !inputSection || !blueButtonContainer || !redButtonContainer || !copyTeamsButton) return;
+        
         resultsSection.classList.add("hidden");
         inputSection.classList.remove("hidden");
-
         if (gradualRevealTimer) {
             clearInterval(gradualRevealTimer);
             gradualRevealTimer = null;
         }
         gradualRevealCount = 0;
         revealedOnClick.clear();
-
-        // Reset visual completo
+        players = [];
         document.querySelectorAll(".player-card .player-name").forEach(p => p.textContent = "???");
         document.querySelectorAll(".player-card").forEach(p => { p.classList.add("hidden"); p.classList.remove("blue", "red"); });
         document.querySelectorAll(".map-position .player-name").forEach(p => p.textContent = "???");
         document.querySelectorAll(".map-position").forEach(p => { p.classList.add("hidden"); p.classList.remove("blue-revealed", "red-revealed"); });
-
-        blueCopyContainer.innerHTML = "";
-        redCopyContainer.innerHTML = "";
-
+        blueButtonContainer.innerHTML = ""; 
+        redButtonContainer.innerHTML = "";  
         copyTeamsButton.textContent = "Copiar Times";
         copyTeamsButton.disabled = false;
     }
@@ -393,7 +438,6 @@ document.addEventListener("DOMContentLoaded", function() {
         let textToCopy = "";
         let teamBlueText = "";
         let teamRedText = "";
-
         if (teams.blue.length > 0) {
             teamBlueText += "Time Azul:\n";
             teams.blue.forEach(player => {
@@ -401,7 +445,6 @@ document.addEventListener("DOMContentLoaded", function() {
             });
             textToCopy += teamBlueText;
         }
-
         if (teams.red.length > 0) {
             if (textToCopy !== "") {
                 textToCopy += "\n";
@@ -412,7 +455,6 @@ document.addEventListener("DOMContentLoaded", function() {
             });
             textToCopy += teamRedText;
         }
-
         if (textToCopy.trim() === "") {
             alert("Não há times para copiar.");
             return;
@@ -424,7 +466,6 @@ document.addEventListener("DOMContentLoaded", function() {
         let textToCopy = "";
         const teamData = teams[teamColor];
         const teamName = teamColor === 'blue' ? 'Azul' : 'Vermelho';
-
         if (teamData && teamData.length > 0) {
             textToCopy += `Time ${teamName}:\n`;
             teamData.forEach(player => {
@@ -438,6 +479,10 @@ document.addEventListener("DOMContentLoaded", function() {
     }
 
     function copyToClipboard(text, buttonElement) {
+        if (!navigator.clipboard) {
+            alert("Seu navegador não suporta a cópia para a área de transferência.");
+            return;
+        }
         navigator.clipboard.writeText(text).then(() => {
             const originalText = buttonElement.textContent;
             buttonElement.textContent = "Copiado!";
@@ -448,7 +493,7 @@ document.addEventListener("DOMContentLoaded", function() {
             }, 2000);
         }).catch(err => {
             console.error("Erro ao copiar: ", err);
-            alert("Erro ao copiar. Verifique as permissões do navegador.");
+            alert("Erro ao copiar. Verifique as permissões do navegador ou tente manualmente.");
         });
     }
 });
