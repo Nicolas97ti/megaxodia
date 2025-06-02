@@ -220,7 +220,7 @@ h4 {
 /* Resultados do sorteio */
 .team-container {
     margin-bottom: 30px;
-    min-height: 150px
+    /* min-height removido daqui para controle mais fino */
 }
 
 .team-blue-title {
@@ -235,6 +235,8 @@ h4 {
     display: grid;
     grid-template-columns: 1fr;
     gap: 10px;
+    min-height: 80px; /* <<< Adicionado: Garante altura mínima para o grid */
+    margin-bottom: 15px; /* <<< Adicionado: Espaço entre grid e botão */
 }
 
 .player-card {
@@ -243,6 +245,10 @@ h4 {
     text-align: center;
     transition: all 0.3s ease;
     cursor: pointer;
+    min-height: 60px; /* <<< Adicionado: Garante altura mínima para o card */
+    display: flex; /* Para centralizar conteúdo verticalmente se necessário */
+    flex-direction: column;
+    justify-content: center;
 }
 
 .player-card:hover {
@@ -266,6 +272,17 @@ h4 {
     margin-bottom: 5px;
 }
 
+.player-name {
+    font-size: 0.9rem; /* Ajustado para melhor leitura */
+    min-height: 1.2em; /* <<< Adicionado: Garante espaço mesmo com '???' */
+}
+
+/* <<< Novo: Estilo para o container do botão de cópia >>> */
+.team-copy-button-container {
+    text-align: center; /* Centraliza o botão */
+    /* margin-top: 15px; Removido, usando margin-bottom no grid */
+}
+
 /* Visualização do mapa */
 #map-view {
     margin-top: 30px;
@@ -284,7 +301,7 @@ h4 {
     background-color: #0f1923;
     border-radius: 10px;
     border: 2px solid var(--light-gray);
-    background-image: url('img/summoners-rift-map.jpg');
+    background-image: url('public/summoners-rift-map.jpg');
     background-size: cover;
     background-position: center;
     background-repeat: no-repeat;
@@ -304,6 +321,7 @@ h4 {
     transition: all 0.3s ease;
     border: 2px solid var(--white);
     font-size: 0.8rem;
+    text-align: center; /* Garante centralização do texto */
 }
 
 .map-position:hover {
@@ -328,80 +346,33 @@ h4 {
     font-size: 0.7rem;
 }
 
-.player-name {
+.map-position .player-name { /* <<< Especificidade aumentada >>> */
     font-size: 0.7rem;
-    max-width: 100%;
+    max-width: 90%; /* Evita transbordar */
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    min-height: 1em; /* Garante espaço mesmo com '???' */
 }
 
 /* Posições no mapa */
-.blue-top {
-    top: 20%;
-    left: 20%;
-    transform: translate(-50%, -50%);
-}
-
-.blue-jungle {
-    top: 40%;
-    left: 30%;
-    transform: translate(-50%, -50%);
-}
-
-.blue-mid {
-    top: 50%;
-    left: 40%;
-    transform: translate(-50%, -50%);
-}
-
-.blue-adc {
-    top: 70%;
-    left: 30%;
-    transform: translate(-50%, -50%);
-}
-
-.blue-support {
-    top: 80%;
-    left: 20%;
-    transform: translate(-50%, -50%);
-}
-
-.red-top {
-    top: 20%;
-    right: 20%;
-    transform: translate(50%, -50%);
-}
-
-.red-jungle {
-    top: 40%;
-    right: 30%;
-    transform: translate(50%, -50%);
-}
-
-.red-mid {
-    top: 50%;
-    right: 40%;
-    transform: translate(50%, -50%);
-}
-
-.red-adc {
-    top: 70%;
-    right: 30%;
-    transform: translate(50%, -50%);
-}
-
-.red-support {
-    top: 80%;
-    right: 20%;
-    transform: translate(50%, -50%);
-}
+.blue-top { top: 20%; left: 20%; transform: translate(-50%, -50%); }
+.blue-jungle { top: 40%; left: 30%; transform: translate(-50%, -50%); }
+.blue-mid { top: 50%; left: 40%; transform: translate(-50%, -50%); }
+.blue-adc { top: 70%; left: 30%; transform: translate(-50%, -50%); }
+.blue-support { top: 80%; left: 20%; transform: translate(-50%, -50%); }
+.red-top { top: 20%; right: 20%; transform: translate(50%, -50%); }
+.red-jungle { top: 40%; right: 30%; transform: translate(50%, -50%); }
+.red-mid { top: 50%; right: 40%; transform: translate(50%, -50%); }
+.red-adc { top: 70%; right: 30%; transform: translate(50%, -50%); }
+.red-support { top: 80%; right: 20%; transform: translate(50%, -50%); }
 
 .results-buttons {
     display: flex;
     flex-direction: column;
     gap: 15px;
     align-items: center;
+    margin-top: 30px; /* Adiciona espaço acima dos botões gerais */
 }
 
 .secondary-button {
@@ -436,8 +407,9 @@ footer {
     padding: 20px 0;
     text-align: center;
     width: 100%;
-    position: sticky;
-    bottom: 0;
+    /* position: sticky; Removido para evitar sobreposição */
+    /* bottom: 0; */
+    margin-top: auto; /* Empurra para o final */
 }
 
 footer p {
@@ -456,44 +428,27 @@ footer p {
         flex-direction: row;
         justify-content: space-between;
     }
-    
-    .logo-container {
-        margin-bottom: 0;
-    }
-    
-    .logo {
-        height: 70px;
-    }
-    
-    .about-text {
-        max-width: 800px;
-        margin: 0 auto;
-    }
-    
+    .logo-container { margin-bottom: 0; }
+    .logo { height: 70px; }
+    .about-text { max-width: 800px; margin: 0 auto; }
     .options-section {
         flex-direction: row;
         justify-content: space-between;
     }
-    
-    .reveal-options, .team-options {
-        width: 48%;
-    }
-    
+    .reveal-options, .team-options { width: 48%; }
     .options-container {
         flex-direction: row;
         gap: 20px;
     }
-    
     .team-grid {
         grid-template-columns: repeat(5, 1fr);
+        min-height: 100px; /* Altura mínima maior em telas grandes */
     }
-    
     .map-position {
         width: 80px;
         height: 80px;
         font-size: 0.9rem;
     }
-    
     .results-buttons {
         flex-direction: row;
         justify-content: center;
@@ -506,8 +461,11 @@ footer p {
         height: 60px;
         font-size: 0.7rem;
     }
-    
-    .position-name, .player-name {
+    .position-name, .map-position .player-name {
         font-size: 0.6rem;
     }
+    .player-card .player-name {
+         font-size: 0.8rem; /* Ajuste para telas menores */
+    }
 }
+
