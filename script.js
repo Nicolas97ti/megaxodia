@@ -6,18 +6,14 @@
 document.addEventListener("DOMContentLoaded", function () {
 
     // ========== CONFIGURAÇÃO GOOGLE SHEETS ====================
-    // URL da planilha publicada como CSV (use esta)
-    // Para publicar: Arquivo > Compartilhar > Publicar na web > CSV
+    // URL da planilha publicada como CSV
     const GOOGLE_SHEETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQlTceJjbWHm-q8O7uBbXW-aTSjuOmMTP1XN0MlNUFCWgKYsDRO39muYuN-YBSdDSzpJlWl8lg8OXEs/pub?output=csv";
-    
-    // Fallback: URL XLSX (menos ideal, mas pode funcionar)
-    const GOOGLE_SHEETS_XLSX_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQlTceJjbWHm-q8O7uBbXW-aTSjuOmMTP1XN0MlNUFCWgKYsDRO39muYuN-YBSdDSzpJlWl8lg8OXEs/pub?output=xlsx";
     
     // URLs de proxy CORS gratuitos (fallback se falhar)
     const CORS_PROXIES = [
-        "https://cors-anywhere.herokuapp.com/",
         "https://api.allorigins.win/raw?url=",
-        "https://corsproxy.io/?"
+        "https://corsproxy.io/?",
+        "https://cors-anywhere.herokuapp.com/"
     ];
     
     // Verificar se está rodando localmente (file://)
@@ -103,7 +99,7 @@ document.addEventListener("DOMContentLoaded", function () {
     navHome.addEventListener("click", () => showSection("home"));
     navJogadores.addEventListener("click", () => showSection("jogadores"));
     navSorteador.addEventListener("click", () => showSection("sorteador"));
-    shuffleButton.addEventListener("click", () => handleShuffle(true)); // true = permitir repetição
+    shuffleButton.addEventListener("click", () => handleShuffle(true));
     newShuffleButton.addEventListener("click", resetShuffle);
     copyTeamsButton.addEventListener("click", () => copyTeamsToClipboard(copyTeamsButton));
     blueTeamGrid.addEventListener("click", handlePlayerClick);
@@ -117,48 +113,108 @@ document.addEventListener("DOMContentLoaded", function () {
     excelImport.addEventListener("change", handleExcelImport);
     btnExportExcel.addEventListener("click", handleExcelExport);
     
-    // Botão de sincronização manual
     if (btnSyncGoogle) btnSyncGoogle.addEventListener("click", () => syncWithGoogleSheets(true));
     
     if (addAllBtn) addAllBtn.addEventListener("click", addAllToSorteio);
     if (removeAllBtn) removeAllBtn.addEventListener("click", removeAllFromSorteio);
 
     document.querySelectorAll("input[name='revealMode']").forEach(r =>
-        r.addEventListener("change", function () { revealMode = this.value; }));
+        r.addEventListener("change", function () { 
+            revealMode = this.value;
+            // Quando mudar o modo, re-renderizar para aplicar o comportamento correto
+            if (teams.blue.length > 0 || teams.red.length > 0) {
+                updateInitialVisualState();
+            }
+        }));
     document.querySelectorAll("input[name='teamOption']").forEach(r =>
         r.addEventListener("change", function () { teamOption = this.value; }));
 
     initStarRatings();
     
-    // Carregar dados: primeiro tenta localStorage, depois sincroniza com Google
     loadInitialData();
     
     // ==========================================================
-    //  FUNÇÕES DE SINCRONIZACAO COM CORS
+    //  FUNÇÕES DE SINCRONIZACAO COM GOOGLE SHEETS
     // ==========================================================
     
-    /**
-     * Busca CSV com suporte a CORS (funciona local e online)
-     */
-    async function fetchCSVWithCORS(url, useProxy = false) {
-        if (useProxy || isLocalFile) {
-            for (const proxy of CORS_PROXIES) {
-                try {
-                    const proxyUrl = proxy + encodeURIComponent(url);
-                    const response = await fetch(proxyUrl);
-                    if (response.ok) {
-                        return await response.text();
-                    }
-                } catch (e) {
-                    console.log(`Proxy ${proxy} falhou:`, e.message);
+    async function fetchGoogleSheetCSV() {
+        // Tentar diretamente primeiro (funciona no GitHub Pages)
+        try {
+            const response = await fetch(GOOGLE_SHEETS_CSV_URL);
+            if (response.ok) {
+                const text = await response.text();
+                if (text && text.trim().length > 0) {
+                    return text;
                 }
             }
-            throw new Error("Todos os proxies CORS falharam");
-        } else {
-            const response = await fetch(url);
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            return await response.text();
+        } catch (e) {
+            console.log("Falha na requisição direta:", e.message);
         }
+        
+        // Tentar com proxies
+        for (const proxy of CORS_PROXIES) {
+            try {
+                const proxyUrl = proxy + encodeURIComponent(GOOGLE_SHEETS_CSV_URL);
+                const response = await fetch(proxyUrl);
+                if (response.ok) {
+                    const text = await response.text();
+                    if (text && text.trim().length > 0) {
+                        return text;
+                    }
+                }
+            } catch (e) {
+                console.log(`Proxy ${proxy} falhou:`, e.message);
+            }
+        }
+        
+        throw new Error("Não foi possível acessar a planilha do Google Sheets");
+    }
+    
+    function parseGoogleSheetCSV(csvText) {
+        const rows = [];
+        const lines = csvText.split(/\r?\n/);
+        
+        for (const line of lines) {
+            if (line.trim() === "") continue;
+            
+            // Limpar caracteres especiais no início da linha
+            let cleanLine = line.trim();
+            
+            const row = [];
+            let current = "";
+            let inQuotes = false;
+            
+            for (let i = 0; i < cleanLine.length; i++) {
+                const char = cleanLine[i];
+                
+                if (char === '"') {
+                    inQuotes = !inQuotes;
+                } else if (char === ',' && !inQuotes) {
+                    row.push(current.trim());
+                    current = "";
+                } else {
+                    current += char;
+                }
+            }
+            row.push(current.trim());
+            
+            // Limpar aspas das células
+            const cleanRow = row.map(cell => {
+                let cleaned = cell;
+                if (cleaned.startsWith('"') && cleaned.endsWith('"')) {
+                    cleaned = cleaned.slice(1, -1);
+                }
+                // Remover caracteres não imprimíveis
+                cleaned = cleaned.replace(/[^\x20-\x7E\u00C0-\u00FF]/g, '');
+                return cleaned;
+            });
+            
+            if (cleanRow.length > 0 && cleanRow.some(cell => cell.length > 0)) {
+                rows.push(cleanRow);
+            }
+        }
+        
+        return rows;
     }
     
     async function syncWithGoogleSheets(showAlert = false) {
@@ -174,40 +230,9 @@ document.addEventListener("DOMContentLoaded", function () {
             btnSyncGoogle.disabled = true;
         }
         
-        let success = false;
-        
         try {
-            let csvText = null;
-            
-            // Tentar primeiro com CSV (recomendado)
-            if (!isLocalFile) {
-                try {
-                    csvText = await fetchCSVWithCORS(GOOGLE_SHEETS_CSV_URL, false);
-                    console.log("Sincronização CSV bem-sucedida");
-                } catch (csvError) {
-                    console.log("Falha no CSV, tentando XLSX:", csvError.message);
-                    // Tentar com XLSX
-                    const xlsxResponse = await fetch(GOOGLE_SHEETS_XLSX_URL);
-                    if (xlsxResponse.ok) {
-                        const xlsxData = await xlsxResponse.arrayBuffer();
-                        const workbook = XLSX.read(xlsxData, { type: "array" });
-                        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-                        csvText = XLSX.utils.sheet_to_csv(firstSheet);
-                    } else {
-                        throw new Error("Falha ao baixar XLSX");
-                    }
-                }
-            } else {
-                // Local file: usar proxy com CSV
-                csvText = await fetchCSVWithCORS(GOOGLE_SHEETS_CSV_URL, true);
-                console.log("Modo local: sincronização via proxy");
-            }
-            
-            if (!csvText) {
-                throw new Error("Não foi possível obter os dados da planilha");
-            }
-            
-            const rows = parseCSV(csvText);
+            const csvText = await fetchGoogleSheetCSV();
+            const rows = parseGoogleSheetCSV(csvText);
             
             if (rows.length < 2) {
                 throw new Error("Planilha vazia ou formato inválido");
@@ -242,7 +267,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 if (!name) continue;
                 
                 const getScore = (index) => {
-                    if (index === -1) return 3;
+                    if (index === -1 || index >= row.length) return 3;
                     const val = parseInt(row[index]);
                     return (isNaN(val) || val < 1 || val > 5) ? 3 : val;
                 };
@@ -279,7 +304,6 @@ document.addEventListener("DOMContentLoaded", function () {
                 renderPlayersList();
                 renderAvailablePlayers();
                 renderSelectedPlayers();
-                success = true;
                 
                 if (showAlert) {
                     alert(`Sincronização concluída!\n${added} jogadores adicionados, ${updated} atualizados.`);
@@ -288,15 +312,12 @@ document.addEventListener("DOMContentLoaded", function () {
                 }
             } else if (showAlert) {
                 alert("Nenhuma alteração encontrada na planilha.");
-                success = true;
             }
             
         } catch (error) {
             console.error("Erro na sincronização:", error);
             if (showAlert) {
-                let errorMsg = `Erro ao sincronizar com Google Sheets:\n${error.message}\n\n`;
-                errorMsg += `Verifique se a planilha está publicada como CSV:\nArquivo > Compartilhar > Publicar na web > CSV`;
-                alert(errorMsg);
+                alert(`Erro ao sincronizar com Google Sheets:\n${error.message}\n\nVerifique se a planilha está publicada como CSV:\nArquivo > Compartilhar > Publicar na web > CSV`);
             }
         } finally {
             isSyncing = false;
@@ -305,49 +326,6 @@ document.addEventListener("DOMContentLoaded", function () {
                 btnSyncGoogle.disabled = false;
             }
         }
-        
-        return success;
-    }
-    
-    /**
-     * Parse CSV simples
-     */
-    function parseCSV(csvText) {
-        const rows = [];
-        const lines = csvText.split(/\r?\n/);
-        
-        for (const line of lines) {
-            if (line.trim() === "") continue;
-            
-            const row = [];
-            let current = "";
-            let inQuotes = false;
-            
-            for (let i = 0; i < line.length; i++) {
-                const char = line[i];
-                
-                if (char === '"') {
-                    inQuotes = !inQuotes;
-                } else if (char === ',' && !inQuotes) {
-                    row.push(current.trim());
-                    current = "";
-                } else {
-                    current += char;
-                }
-            }
-            row.push(current.trim());
-            
-            const cleanRow = row.map(cell => {
-                if (cell.startsWith('"') && cell.endsWith('"')) {
-                    return cell.slice(1, -1);
-                }
-                return cell;
-            });
-            
-            rows.push(cleanRow);
-        }
-        
-        return rows;
     }
     
     // ==========================================================
@@ -369,7 +347,8 @@ document.addEventListener("DOMContentLoaded", function () {
             showSection("home");
         }
         
-        await syncWithGoogleSheets(false);
+        // Sincronização silenciosa em segundo plano
+        setTimeout(() => syncWithGoogleSheets(false), 500);
     }
     
     function getDefaultPlayers() {
@@ -642,7 +621,6 @@ document.addEventListener("DOMContentLoaded", function () {
         }
         if (hint) hint.style.display = "none";
 
-        // Ordenar jogadores selecionados alfabeticamente
         const sortedSelectedIds = sortPlayersAlphabeticallyByIds(selectedForSorteio);
         
         container.innerHTML = sortedSelectedIds.map(id => {
@@ -718,18 +696,12 @@ document.addEventListener("DOMContentLoaded", function () {
     //  BALANCEAMENTO POR ROTAS COM VARIACAO
     // ==========================================================
     
-    /**
-     * Gera um hash único para um sorteio (para evitar repetição)
-     */
     function generateShuffleHash(blueTeam, redTeam) {
         const blueStr = blueTeam.map(p => `${p.position}:${p.name}`).sort().join('|');
         const redStr = redTeam.map(p => `${p.position}:${p.name}`).sort().join('|');
         return `${blueStr}|${redStr}`;
     }
     
-    /**
-     * Embaralha com semente aleatória para dar variação nos sorteios
-     */
     function deterministicShuffle(array, seed) {
         const shuffled = [...array];
         let currentIndex = shuffled.length;
@@ -765,10 +737,7 @@ document.addEventListener("DOMContentLoaded", function () {
         const result = { blue: [], red: [] };
         const usedPlayers = new Set();
         
-        // Adicionar variação aleatória baseada no timestamp e tentativa
         const seed = Date.now() + attempt * 1000 + Math.random() * 1000;
-        
-        // Embaralhar os jogadores antes de processar para dar variação
         const shuffledPlayers = deterministicShuffle(players, seed);
         
         for (const role of POSITIONS) {
@@ -787,8 +756,6 @@ document.addEventListener("DOMContentLoaded", function () {
                     const score1 = p1[roleKey] || 3;
                     const score2 = p2[roleKey] || 3;
                     const diff = Math.abs(score1 - score2);
-                    
-                    // Adicionar pequena variação aleatória para desempatar
                     const randomFactor = Math.sin(seed + i * roleKey.length) * 0.01;
                     const adjustedDiff = diff + randomFactor;
                     
@@ -891,15 +858,12 @@ document.addEventListener("DOMContentLoaded", function () {
             }
         }
         
-        // Garantir todas as rotas em cada time
         const finalBlue = ensureAllRoles(result.blue);
         const finalRed = ensureAllRoles(result.red);
         
-        // Verificar se já sorteamos esta combinação antes (para evitar repetição)
-        if (avoidRepeat && lastShuffleHash) {
+        if (avoidRepeat && lastShuffleHash && attempt < 10) {
             const currentHash = generateShuffleHash(finalBlue, finalRed);
-            if (currentHash === lastShuffleHash && attempt < 10) {
-                // Recursivamente tenta um novo sorteio com semente diferente
+            if (currentHash === lastShuffleHash) {
                 console.log("Sorteio repetido, tentando novamente... tentativa", attempt + 1);
                 return performBalancedShuffle(playerList, avoidRepeat, attempt + 1);
             }
@@ -1011,11 +975,8 @@ document.addEventListener("DOMContentLoaded", function () {
     }
     
     function performSimpleShuffle(playerList, avoidRepeat = true, attempt = 0) {
-        let shuffled = shuffleArray(playerList);
-        
-        // Adicionar variação aleatória baseada no timestamp
         const seed = Date.now() + attempt * 1000;
-        shuffled = deterministicShuffle(playerList, seed);
+        let shuffled = deterministicShuffle(playerList, seed);
         
         teams.blue = [];
         teams.red = [];
@@ -1036,7 +997,6 @@ document.addEventListener("DOMContentLoaded", function () {
             }));
         }
         
-        // Verificar se já sorteamos esta combinação antes
         if (avoidRepeat && lastShuffleHash && attempt < 10) {
             const currentHash = generateShuffleHash(teams.blue, teams.red);
             if (currentHash === lastShuffleHash) {
@@ -1218,12 +1178,14 @@ document.addEventListener("DOMContentLoaded", function () {
                     card.classList.remove("blue", "red");
                     nameEl.textContent = "";
                 }
-            } else {
+            } else { // click mode
                 card.classList.remove("hidden");
                 card.classList.add(teamColor);
-                if (revealedOnClick.has(`${teamColor}-${index}`))
+                if (revealedOnClick.has(`${teamColor}-${index}`)) {
                     nameEl.textContent = teams[teamColor][index].name;
-                else nameEl.textContent = "";
+                } else {
+                    nameEl.textContent = "";
+                }
             }
         });
     }
@@ -1235,17 +1197,28 @@ document.addEventListener("DOMContentLoaded", function () {
             if (!nameEl || !teams[teamColor][index]) return;
 
             if (revealMode === "click") {
+                // Modo clique: esconder todos os nomes inicialmente
                 pos.classList.remove("hidden");
                 pos.classList.add(`${teamColor}-revealed`);
-                nameEl.textContent = teams[teamColor][index].name;
+                if (revealedOnClick.has(`${teamColor}-${index}`)) {
+                    nameEl.textContent = teams[teamColor][index].name;
+                } else {
+                    nameEl.textContent = "";
+                }
             } else if (revealMode === "all") {
                 pos.classList.remove("hidden");
                 pos.classList.add(`${teamColor}-revealed`);
                 nameEl.textContent = teams[teamColor][index].name;
-            } else {
-                pos.classList.add("hidden");
-                pos.classList.remove("blue-revealed", "red-revealed");
-                nameEl.textContent = "";
+            } else { // gradual mode
+                if (isPlayerRevealed(teamColor, index)) {
+                    pos.classList.remove("hidden");
+                    pos.classList.add(`${teamColor}-revealed`);
+                    nameEl.textContent = teams[teamColor][index].name;
+                } else {
+                    pos.classList.add("hidden");
+                    pos.classList.remove("blue-revealed", "red-revealed");
+                    nameEl.textContent = "";
+                }
             }
         });
     }
@@ -1263,8 +1236,9 @@ document.addEventListener("DOMContentLoaded", function () {
         if (!target) return;
         const team = target.dataset.team;
         const index = parseInt(target.dataset.index);
-        if (team && !isNaN(index) && !revealedOnClick.has(`${team}-${index}`))
+        if (team && !isNaN(index) && !revealedOnClick.has(`${team}-${index}`)) {
             revealPlayer(team, index);
+        }
     }
 
     function revealPlayer(team, index) {
@@ -1345,7 +1319,6 @@ document.addEventListener("DOMContentLoaded", function () {
             copyTeamsButton.textContent = "Copiar Times";
             copyTeamsButton.disabled = false;
         }
-        // Reset do hash para permitir o mesmo sorteio novamente após reset
         lastShuffleHash = null;
     }
 
