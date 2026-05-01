@@ -1,9 +1,24 @@
 // ============================================================
 //  MEGAXODIA - script.js (versao balanceada por rotas)
+//  Com suporte a CORS e fallback para file://
 // ============================================================
 
 document.addEventListener("DOMContentLoaded", function () {
 
+    // ========== CONFIGURAÇÃO GOOGLE SHEETS ====================
+    // URL da planilha publicada como CSV
+    const GOOGLE_SHEETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSdjynSygFolQeWUGPm7VG9hjW4_9mjYAzs6I3ev2O44i4TCb5GxGSacuy8tH6vyo3CnVgcTsXHuLoD/pub?output=csv";
+    
+    // URLs de proxy CORS gratuitos (fallback se falhar)
+    const CORS_PROXIES = [
+        "https://cors-anywhere.herokuapp.com/",
+        "https://api.allorigins.win/raw?url=",
+        "https://corsproxy.io/?"
+    ];
+    
+    // Verificar se está rodando localmente (file://)
+    const isLocalFile = window.location.protocol === 'file:';
+    
     // ========== NAVEGACAO ====================================
     const navHome       = document.getElementById("nav-home");
     const navJogadores  = document.getElementById("nav-jogadores");
@@ -40,6 +55,7 @@ document.addEventListener("DOMContentLoaded", function () {
     const sorteadorSearch  = document.getElementById("sorteador-search");
     const excelImport      = document.getElementById("excel-import");
     const btnExportExcel   = document.getElementById("btn-export-excel");
+    const btnSyncGoogle    = document.getElementById("btn-sync-google");
 
     const POSITIONS = ["Top", "Jungle", "Mid", "ADC", "Support"];
     const ROLES = ["top", "jg", "mid", "adc", "sup"];
@@ -52,7 +68,7 @@ document.addEventListener("DOMContentLoaded", function () {
     };
 
     // ========== STATE ========================================
-    let registeredPlayers = loadPlayers();
+    let registeredPlayers = [];
     let selectedForSorteio = [];
     let teams = { blue: [], red: [] };
     let revealMode = "all";
@@ -61,6 +77,7 @@ document.addEventListener("DOMContentLoaded", function () {
     let gradualRevealCount = 0;
     let revealedOnClick = new Set();
     let draggedPlayerId = null;
+    let isSyncing = false;
 
     // ========== INIT ==========================================
     document.getElementById("current-year").textContent = new Date().getFullYear();
@@ -82,6 +99,9 @@ document.addEventListener("DOMContentLoaded", function () {
     excelImport.addEventListener("change", handleExcelImport);
     btnExportExcel.addEventListener("click", handleExcelExport);
     
+    // Botão de sincronização manual
+    if (btnSyncGoogle) btnSyncGoogle.addEventListener("click", () => syncWithGoogleSheets(true));
+    
     if (addAllBtn) addAllBtn.addEventListener("click", addAllToSorteio);
     if (removeAllBtn) removeAllBtn.addEventListener("click", removeAllFromSorteio);
 
@@ -91,9 +111,272 @@ document.addEventListener("DOMContentLoaded", function () {
         r.addEventListener("change", function () { teamOption = this.value; }));
 
     initStarRatings();
-    renderPlayersList();
-    renderAvailablePlayers();
-    showSection("home");
+    
+    // Carregar dados: primeiro tenta localStorage, depois sincroniza com Google
+    loadInitialData();
+    
+    // ==========================================================
+    //  FUNÇÕES DE SINCRONIZACAO COM CORS
+    // ==========================================================
+    
+    /**
+     * Busca CSV com suporte a CORS (funciona local e online)
+     */
+    async function fetchCSVWithCORS(url, useProxy = false) {
+        if (useProxy || isLocalFile) {
+            // Tentar cada proxy até funcionar
+            for (const proxy of CORS_PROXIES) {
+                try {
+                    const proxyUrl = proxy + encodeURIComponent(url);
+                    const response = await fetch(proxyUrl);
+                    if (response.ok) {
+                        return await response.text();
+                    }
+                } catch (e) {
+                    console.log(`Proxy ${proxy} falhou:`, e.message);
+                }
+            }
+            throw new Error("Todos os proxies CORS falharam");
+        } else {
+            // Tentar diretamente (funciona no GitHub Pages)
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            return await response.text();
+        }
+    }
+    
+    async function syncWithGoogleSheets(showAlert = false) {
+        if (isSyncing) {
+            if (showAlert) alert("Sincronização em andamento, aguarde...");
+            return;
+        }
+        isSyncing = true;
+        
+        // Salvar texto original do botão
+        const originalText = btnSyncGoogle ? btnSyncGoogle.textContent : null;
+        if (btnSyncGoogle && showAlert) {
+            btnSyncGoogle.textContent = "?? Sincronizando...";
+            btnSyncGoogle.disabled = true;
+        }
+        
+        let success = false;
+        let proxyUsed = false;
+        
+        try {
+            let csvText = null;
+            
+            // Tentar primeiro sem proxy (funciona no GitHub Pages)
+            if (!isLocalFile) {
+                try {
+                    csvText = await fetchCSVWithCORS(GOOGLE_SHEETS_CSV_URL, false);
+                    console.log("Sincronização direta bem-sucedida");
+                } catch (directError) {
+                    console.log("Falha na sincronização direta, tentando com proxy:", directError.message);
+                    csvText = await fetchCSVWithCORS(GOOGLE_SHEETS_CSV_URL, true);
+                    proxyUsed = true;
+                    console.log("Sincronização via proxy bem-sucedida");
+                }
+            } else {
+                // Local file: usar proxy sempre
+                csvText = await fetchCSVWithCORS(GOOGLE_SHEETS_CSV_URL, true);
+                proxyUsed = true;
+                console.log("Modo local: sincronização via proxy");
+            }
+            
+            if (!csvText) {
+                throw new Error("Não foi possível obter os dados da planilha");
+            }
+            
+            const rows = parseCSV(csvText);
+            
+            if (rows.length < 2) {
+                throw new Error("Planilha vazia ou formato inválido");
+            }
+            
+            const headers = rows[0];
+            
+            const nameIndex = headers.findIndex(h => 
+                h.toLowerCase() === 'nome' || 
+                h.toLowerCase() === 'name' ||
+                h.toLowerCase() === 'jogador'
+            );
+            
+            const topIndex = headers.findIndex(h => h.toLowerCase().includes('top'));
+            const jgIndex = headers.findIndex(h => h.toLowerCase().includes('jungle') || h.toLowerCase() === 'jg');
+            const midIndex = headers.findIndex(h => h.toLowerCase().includes('mid'));
+            const adcIndex = headers.findIndex(h => h.toLowerCase().includes('adc'));
+            const supIndex = headers.findIndex(h => h.toLowerCase().includes('support') || h.toLowerCase() === 'sup');
+            
+            if (nameIndex === -1) {
+                throw new Error("Coluna 'Nome' não encontrada na planilha");
+            }
+            
+            let added = 0, updated = 0;
+            const newPlayers = [];
+            
+            for (let i = 1; i < rows.length; i++) {
+                const row = rows[i];
+                if (!row || row.length === 0) continue;
+                
+                const name = row[nameIndex]?.trim();
+                if (!name) continue;
+                
+                const getScore = (index) => {
+                    if (index === -1) return 3;
+                    const val = parseInt(row[index]);
+                    return (isNaN(val) || val < 1 || val > 5) ? 3 : val;
+                };
+                
+                const existingPlayer = registeredPlayers.find(p => 
+                    p.name.toLowerCase() === name.toLowerCase()
+                );
+                
+                if (existingPlayer) {
+                    existingPlayer.top = getScore(topIndex);
+                    existingPlayer.jg = getScore(jgIndex);
+                    existingPlayer.mid = getScore(midIndex);
+                    existingPlayer.adc = getScore(adcIndex);
+                    existingPlayer.sup = getScore(supIndex);
+                    updated++;
+                    newPlayers.push(existingPlayer);
+                } else {
+                    newPlayers.push({
+                        id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
+                        name: name,
+                        top: getScore(topIndex),
+                        jg: getScore(jgIndex),
+                        mid: getScore(midIndex),
+                        adc: getScore(adcIndex),
+                        sup: getScore(supIndex)
+                    });
+                    added++;
+                }
+            }
+            
+            if (newPlayers.length > 0) {
+                registeredPlayers = newPlayers;
+                savePlayers();
+                renderPlayersList();
+                renderAvailablePlayers();
+                renderSelectedPlayers();
+                success = true;
+                
+                const proxyMsg = proxyUsed ? " (via proxy CORS)" : "";
+                if (showAlert) {
+                    alert(`Sincronização concluída!${proxyMsg}\n${added} jogadores adicionados, ${updated} atualizados.`);
+                } else {
+                    console.log(`Sincronização automática: ${added} adicionados, ${updated} atualizados${proxyMsg}`);
+                }
+            } else if (showAlert) {
+                alert("Nenhuma alteração encontrada na planilha.");
+                success = true;
+            }
+            
+        } catch (error) {
+            console.error("Erro na sincronização:", error);
+            if (showAlert) {
+                let errorMsg = `Erro ao sincronizar com Google Sheets:\n${error.message}\n\n`;
+                if (isLocalFile) {
+                    errorMsg += `Você está rodando localmente (file://).\nPara sincronizar, use o site online:\nhttps://nicolas97ti.github.io/megaxodia/\n\nOu instale a extensão "CORS Unblock" no navegador.`;
+                } else {
+                    errorMsg += `Verifique se a planilha está publicada como CSV:\nArquivo > Publicar na web > CSV`;
+                }
+                alert(errorMsg);
+            }
+        } finally {
+            isSyncing = false;
+            if (btnSyncGoogle && showAlert) {
+                btnSyncGoogle.textContent = originalText;
+                btnSyncGoogle.disabled = false;
+            }
+        }
+        
+        return success;
+    }
+    
+    /**
+     * Parse CSV simples
+     */
+    function parseCSV(csvText) {
+        const rows = [];
+        const lines = csvText.split(/\r?\n/);
+        
+        for (const line of lines) {
+            if (line.trim() === "") continue;
+            
+            const row = [];
+            let current = "";
+            let inQuotes = false;
+            
+            for (let i = 0; i < line.length; i++) {
+                const char = line[i];
+                
+                if (char === '"') {
+                    inQuotes = !inQuotes;
+                } else if (char === ',' && !inQuotes) {
+                    row.push(current.trim());
+                    current = "";
+                } else {
+                    current += char;
+                }
+            }
+            row.push(current.trim());
+            
+            const cleanRow = row.map(cell => {
+                if (cell.startsWith('"') && cell.endsWith('"')) {
+                    return cell.slice(1, -1);
+                }
+                return cell;
+            });
+            
+            rows.push(cleanRow);
+        }
+        
+        return rows;
+    }
+    
+    // ==========================================================
+    //  CARREGAMENTO INICIAL
+    // ==========================================================
+    async function loadInitialData() {
+        // Primeiro, carrega dados salvos localmente (fallback)
+        const saved = localStorage.getItem("megaxodia_players");
+        if (saved && saved !== "[]") {
+            registeredPlayers = JSON.parse(saved);
+            renderPlayersList();
+            renderAvailablePlayers();
+            renderSelectedPlayers();
+            showSection("home");
+        } else {
+            // Se não há dados salvos, usa dados padrão
+            registeredPlayers = getDefaultPlayers();
+            renderPlayersList();
+            renderAvailablePlayers();
+            renderSelectedPlayers();
+            showSection("home");
+        }
+        
+        // Tenta sincronizar com Google Sheets em segundo plano
+        // Se falhar (CORS local), não mostra alerta
+        await syncWithGoogleSheets(false);
+    }
+    
+    function getDefaultPlayers() {
+        return [
+            { id: "1", name: "Nicolas", top: 4, jg: 1, mid: 3, adc: 3, sup: 3 },
+            { id: "2", name: "Joao", top: 1, jg: 3, mid: 4, adc: 2, sup: 1 },
+            { id: "3", name: "Erick", top: 2, jg: 2, mid: 5, adc: 4, sup: 3 },
+            { id: "4", name: "Davi", top: 3, jg: 3, mid: 2, adc: 2, sup: 2 },
+            { id: "5", name: "Erao", top: 1, jg: 4, mid: 3, adc: 1, sup: 4 },
+            { id: "6", name: "Caio", top: 2, jg: 1, mid: 1, adc: 4, sup: 4 },
+            { id: "7", name: "Eboy", top: 5, jg: 2, mid: 4, adc: 3, sup: 1 },
+            { id: "8", name: "Giva", top: 1, jg: 3, mid: 2, adc: 3, sup: 5 }
+        ];
+    }
+    
+    function savePlayers() {
+        localStorage.setItem("megaxodia_players", JSON.stringify(registeredPlayers));
+    }
 
     // ==========================================================
     //  NAVIGATION
@@ -131,7 +414,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 const star = document.createElement("span");
                 star.className = "star";
                 star.setAttribute("data-star", i);
-                star.innerHTML = "&#9733;"; // Código HTML para estrela (?)
+                star.innerHTML = "&#9733;";
                 star.dataset.value = i;
                 star.addEventListener("click", () => {
                     const role = container.dataset.role;
@@ -186,31 +469,6 @@ document.addEventListener("DOMContentLoaded", function () {
     // ==========================================================
     //  PLAYER CRUD
     // ==========================================================
-    function loadPlayers() {
-        try {
-            const saved = localStorage.getItem("megaxodia_players");
-            if (saved && saved !== "[]") {
-                return JSON.parse(saved);
-            }
-            return [
-                { id: "1", name: "Nicolas", top: 4, jg: 1, mid: 3, adc: 3, sup: 3 },
-                { id: "2", name: "Joao", top: 1, jg: 3, mid: 4, adc: 2, sup: 1 },
-                { id: "3", name: "Erick", top: 2, jg: 2, mid: 5, adc: 4, sup: 3 },
-                { id: "4", name: "Davi", top: 3, jg: 3, mid: 2, adc: 2, sup: 2 },
-                { id: "5", name: "Erao", top: 1, jg: 4, mid: 3, adc: 1, sup: 4 },
-                { id: "6", name: "Caio", top: 2, jg: 1, mid: 1, adc: 4, sup: 4 },
-                { id: "7", name: "Eboy", top: 5, jg: 2, mid: 4, adc: 3, sup: 1 },
-                { id: "8", name: "Giva", top: 1, jg: 3, mid: 2, adc: 3, sup: 5 }
-            ];
-        } catch {
-            return [];
-        }
-    }
-
-    function savePlayers() {
-        localStorage.setItem("megaxodia_players", JSON.stringify(registeredPlayers));
-    }
-
     function openNewPlayerForm() {
         editPlayerId.value = "";
         formTitle.textContent = "Novo Jogador";
@@ -436,12 +694,9 @@ document.addEventListener("DOMContentLoaded", function () {
     window._deletePlayer = (id) => deletePlayer(id);
 
     // ==========================================================
-    //  NOVO ALGORITMO DE BALANCEAMENTO POR ROTAS
+    //  BALANCEAMENTO POR ROTAS
     // ==========================================================
     
-    /**
-     * Retorna a melhor rota para um jogador baseado em suas pontuacoes
-     */
     function getBestRoleForPlayer(player) {
         let bestRole = null;
         let bestScore = -1;
@@ -457,100 +712,17 @@ document.addEventListener("DOMContentLoaded", function () {
         return { role: bestRole, score: bestScore };
     }
     
-    /**
-     * Ordena jogadores por sua melhor rota e pontuacao
-     */
-    function sortPlayersByBestRole(players) {
-        return players.map(p => ({
-            player: p,
-            bestRole: getBestRoleForPlayer(p)
-        })).sort((a, b) => {
-            // Primeiro ordena por rota (para agrupar)
-            if (a.bestRole.role !== b.bestRole.role) {
-                return a.bestRole.role.localeCompare(b.bestRole.role);
-            }
-            // Depois por pontuacao (decrescente)
-            return b.bestRole.score - a.bestRole.score;
-        });
-    }
-    
-    /**
-     * Calcula a diferenca de forca entre dois jogadores em uma rota especifica
-     */
-    function getRoleDifference(player1, player2, role) {
-        const roleKey = POSITION_MAP[role];
-        const score1 = player1[roleKey] || 3;
-        const score2 = player2[roleKey] || 3;
-        return Math.abs(score1 - score2);
-    }
-    
-    /**
-     * Encontra o melhor oponente para um jogador em uma rota especifica
-     */
-    function findBestMatch(players, role, targetScore) {
-        let bestMatch = null;
-        let bestDiff = Infinity;
-        
-        for (const p of players) {
-            const roleKey = POSITION_MAP[role];
-            const score = p[roleKey] || 3;
-            const diff = Math.abs(score - targetScore);
-            if (diff < bestDiff) {
-                bestDiff = diff;
-                bestMatch = p;
-            }
-        }
-        return bestMatch;
-    }
-    
-    /**
-     * Balanceamento inteligente por rotas
-     * Cada rota e balanceada individualmente
-     */
     function performBalancedShuffle(playerList) {
         const players = [...playerList];
-        
-        // Para cada rota, encontrar os 2 melhores jogadores para aquela rota
-        // (um para cada time, baseado na pontuação)
-        const roleMatches = {};
-        
-        for (const role of POSITIONS) {
-            const roleKey = POSITION_MAP[role];
-            
-            // Ordena jogadores por pontuação nesta rota (melhores primeiro)
-            const rankedByRole = [...players].sort((a, b) => {
-                const scoreA = a[roleKey] || 3;
-                const scoreB = b[roleKey] || 3;
-                return scoreB - scoreA;
-            });
-            
-            roleMatches[role] = {
-                strong: rankedByRole[0],  // Melhor para esta rota
-                weak: rankedByRole[rankedByRole.length - 1]  // Pior para esta rota
-            };
-        }
-        
-        // Estratégia: distribuir os jogadores de forma que cada time tenha
-        // uma mistura de fortes e fracos em cada rota
-        
         const result = { blue: [], red: [] };
         const usedPlayers = new Set();
         
-        // Primeiro, garantir que cada rota seja preenchida com jogadores
-        // que têm afinidade com ela, mantendo o balanceamento
-        
-        // Para cada rota, vamos atribuir um jogador ao time azul e outro ao vermelho
-        // Priorizando que a diferença de pontuação em cada rota seja mínima
         for (const role of POSITIONS) {
             const roleKey = POSITION_MAP[role];
-            
-            // Filtrar jogadores disponíveis que têm boa pontuação nesta rota
             const availableForRole = players.filter(p => !usedPlayers.has(p.id));
             
             if (availableForRole.length === 0) break;
             
-            // Encontrar o melhor par de jogadores para esta rota (um para cada time)
-            // que minimize a diferença de pontuação
             let bestPair = null;
             let bestDiff = Infinity;
             
@@ -570,10 +742,7 @@ document.addEventListener("DOMContentLoaded", function () {
             }
             
             if (bestPair) {
-                // Alternar qual time recebe o melhor jogador para balancear
                 const blueGetsStronger = (result.blue.length % 2 === 0);
-                
-                // Ordenar por pontuação
                 const sorted = [...bestPair].sort((a, b) => {
                     const scoreA = a[roleKey] || 3;
                     const scoreB = b[roleKey] || 3;
@@ -616,159 +785,57 @@ document.addEventListener("DOMContentLoaded", function () {
             }
         }
         
-        // Verificar se todas as rotas foram preenchidas
-        // Se não, preencher com os jogadores restantes
-        const missingRolesBlue = POSITIONS.filter(role => !result.blue.some(p => p.position === role));
-        const missingRolesRed = POSITIONS.filter(role => !result.red.some(p => p.position === role));
-        
-        // Jogadores restantes (não deveria acontecer com 10 jogadores)
         const remainingPlayers = players.filter(p => !usedPlayers.has(p.id));
         
-        // Preencher rotas faltantes com jogadores restantes
-        for (let i = 0; i < missingRolesBlue.length && i < remainingPlayers.length; i++) {
-            const player = remainingPlayers[i];
-            const role = missingRolesBlue[i];
-            const roleKey = POSITION_MAP[role];
-            result.blue.push({
-                name: player.name,
-                position: role,
-                score: player[roleKey] || 3,
-                playerId: player.id
-            });
-            usedPlayers.add(player.id);
-        }
-        
-        for (let i = 0; i < missingRolesRed.length; i++) {
-            // Encontrar jogador não usado para esta rota
-            const availableForRole = players.filter(p => !usedPlayers.has(p.id));
-            if (availableForRole.length > 0) {
-                const player = availableForRole[0];
-                const role = missingRolesRed[i];
+        for (const player of remainingPlayers) {
+            let bestRole = null;
+            let bestRoleScore = -1;
+            
+            for (const role of POSITIONS) {
                 const roleKey = POSITION_MAP[role];
-                result.red.push({
+                const score = player[roleKey] || 3;
+                const blueHasRole = result.blue.some(r => r.position === role);
+                const redHasRole = result.red.some(r => r.position === role);
+                
+                if (!blueHasRole && !redHasRole) {
+                    if (score > bestRoleScore) {
+                        bestRoleScore = score;
+                        bestRole = role;
+                    }
+                }
+            }
+            
+            if (!bestRole) {
+                const bestRoleData = getBestRoleForPlayer(player);
+                bestRole = bestRoleData.role;
+                bestRoleScore = bestRoleData.score;
+            }
+            
+            const blueTotalScore = result.blue.reduce((sum, r) => sum + r.score, 0);
+            const redTotalScore = result.red.reduce((sum, r) => sum + r.score, 0);
+            const targetTeam = blueTotalScore <= redTotalScore ? "blue" : "red";
+            
+            if (targetTeam === "blue") {
+                result.blue.push({
                     name: player.name,
-                    position: role,
-                    score: player[roleKey] || 3,
+                    position: bestRole,
+                    score: bestRoleScore,
                     playerId: player.id
                 });
-                usedPlayers.add(player.id);
-            }
-        }
-        
-        // Garantir que cada time tenha exatamente 5 jogadores
-        // Se faltar jogador, buscar dos disponíveis
-        while (result.blue.length < 5) {
-            const available = players.filter(p => !usedPlayers.has(p.id));
-            if (available.length === 0) break;
-            const player = available[0];
-            const roleKey = POSITION_MAP["Top"];
-            result.blue.push({
-                name: player.name,
-                position: "Top",
-                score: player[roleKey] || 3,
-                playerId: player.id
-            });
-            usedPlayers.add(player.id);
-        }
-        
-        while (result.red.length < 5) {
-            const available = players.filter(p => !usedPlayers.has(p.id));
-            if (available.length === 0) break;
-            const player = available[0];
-            const roleKey = POSITION_MAP["Top"];
-            result.red.push({
-                name: player.name,
-                position: "Top",
-                score: player[roleKey] || 3,
-                playerId: player.id
-            });
-            usedPlayers.add(player.id);
-        }
-        
-        // Após garantir que todos os times têm 5 jogadores,
-        // vamos ajustar as posições para garantir que cada time tenha todas as 5 rotas
-        
-        // Verificar rotas faltantes no time azul
-        const blueRoles = new Set(result.blue.map(p => p.position));
-        const missingBlueRoles = POSITIONS.filter(role => !blueRoles.has(role));
-        
-        // Se faltam rotas, trocar jogadores de posição
-        for (const missingRole of missingBlueRoles) {
-            // Encontrar um jogador que está em uma posição duplicada
-            const duplicateRole = POSITIONS.find(role => 
-                result.blue.filter(p => p.position === role).length > 1
-            );
-            
-            if (duplicateRole) {
-                const playerToMove = result.blue.find(p => p.position === duplicateRole);
-                if (playerToMove) {
-                    playerToMove.position = missingRole;
-                    // Atualizar pontuação para a nova posição
-                    const roleKey = POSITION_MAP[missingRole];
-                    playerToMove.score = registeredPlayers.find(p => p.id === playerToMove.playerId)[roleKey] || 3;
-                }
-            }
-        }
-        
-        // Verificar rotas faltantes no time vermelho
-        const redRoles = new Set(result.red.map(p => p.position));
-        const missingRedRoles = POSITIONS.filter(role => !redRoles.has(role));
-        
-        for (const missingRole of missingRedRoles) {
-            const duplicateRole = POSITIONS.find(role => 
-                result.red.filter(p => p.position === role).length > 1
-            );
-            
-            if (duplicateRole) {
-                const playerToMove = result.red.find(p => p.position === duplicateRole);
-                if (playerToMove) {
-                    playerToMove.position = missingRole;
-                    const roleKey = POSITION_MAP[missingRole];
-                    playerToMove.score = registeredPlayers.find(p => p.id === playerToMove.playerId)[roleKey] || 3;
-                }
-            }
-        }
-        
-        // Garantir que não há posições duplicadas - Time Azul
-        const finalBlue = [];
-        const usedBlueRoles = new Set();
-        for (const player of result.blue) {
-            if (!usedBlueRoles.has(player.position)) {
-                usedBlueRoles.add(player.position);
-                finalBlue.push(player);
             } else {
-                // Encontrar uma posição não usada para este jogador
-                const availableRole = POSITIONS.find(role => !usedBlueRoles.has(role));
-                if (availableRole) {
-                    player.position = availableRole;
-                    usedBlueRoles.add(availableRole);
-                    const roleKey = POSITION_MAP[availableRole];
-                    player.score = registeredPlayers.find(p => p.id === player.playerId)[roleKey] || 3;
-                    finalBlue.push(player);
-                }
+                result.red.push({
+                    name: player.name,
+                    position: bestRole,
+                    score: bestRoleScore,
+                    playerId: player.id
+                });
             }
         }
         
-        // Garantir que não há posições duplicadas - Time Vermelho
-        const finalRed = [];
-        const usedRedRoles = new Set();
-        for (const player of result.red) {
-            if (!usedRedRoles.has(player.position)) {
-                usedRedRoles.add(player.position);
-                finalRed.push(player);
-            } else {
-                const availableRole = POSITIONS.find(role => !usedRedRoles.has(role));
-                if (availableRole) {
-                    player.position = availableRole;
-                    usedRedRoles.add(availableRole);
-                    const roleKey = POSITION_MAP[availableRole];
-                    player.score = registeredPlayers.find(p => p.id === player.playerId)[roleKey] || 3;
-                    finalRed.push(player);
-                }
-            }
-        }
+        // Garantir todas as rotas em cada time
+        const finalBlue = ensureAllRoles(result.blue, "blue");
+        const finalRed = ensureAllRoles(result.red, "red");
         
-        // Calcular scores totais por rota para mostrar balanceamento
         const blueScoresByRole = {};
         const redScoresByRole = {};
         let blueTotal = 0;
@@ -784,19 +851,54 @@ document.addEventListener("DOMContentLoaded", function () {
             redTotal += redScoresByRole[role];
         }
         
-        // Formatar teams para o formato esperado
         teams.blue = finalBlue.map(p => ({ name: p.name, position: p.position, score: p.score }));
         teams.red = finalRed.map(p => ({ name: p.name, position: p.position, score: p.score }));
         
-        // Mostrar informacao de balanceamento detalhada
         showDetailedBalanceInfo(blueScoresByRole, redScoresByRole, blueTotal, redTotal);
-        
         finalizeShuffle();
     }
     
-    /**
-     * Mostra informacao detalhada de balanceamento por rota
-     */
+    function ensureAllRoles(team, teamColor) {
+        const result = [...team];
+        const usedRoles = new Set(result.map(p => p.position));
+        const missingRoles = POSITIONS.filter(role => !usedRoles.has(role));
+        
+        for (const missingRole of missingRoles) {
+            const duplicateRole = POSITIONS.find(role => 
+                result.filter(p => p.position === role).length > 1
+            );
+            
+            if (duplicateRole) {
+                const playerToMove = result.find(p => p.position === duplicateRole);
+                if (playerToMove) {
+                    playerToMove.position = missingRole;
+                    const roleKey = POSITION_MAP[missingRole];
+                    playerToMove.score = registeredPlayers.find(p => p.id === playerToMove.playerId)[roleKey] || 3;
+                }
+            }
+        }
+        
+        const finalTeam = [];
+        const finalUsedRoles = new Set();
+        for (const player of result) {
+            if (!finalUsedRoles.has(player.position)) {
+                finalUsedRoles.add(player.position);
+                finalTeam.push(player);
+            } else {
+                const availableRole = POSITIONS.find(role => !finalUsedRoles.has(role));
+                if (availableRole) {
+                    player.position = availableRole;
+                    finalUsedRoles.add(availableRole);
+                    const roleKey = POSITION_MAP[availableRole];
+                    player.score = registeredPlayers.find(p => p.id === player.playerId)[roleKey] || 3;
+                    finalTeam.push(player);
+                }
+            }
+        }
+        
+        return finalTeam;
+    }
+    
     function showDetailedBalanceInfo(blueScores, redScores, blueTotal, redTotal) {
         if (!balanceInfo) return;
         balanceInfo.classList.remove("hidden");
@@ -812,7 +914,6 @@ document.addEventListener("DOMContentLoaded", function () {
         if (blueLabel) blueLabel.textContent = blueTotal + " pts";
         if (redLabel) redLabel.textContent = redTotal + " pts";
         
-        // Adicionar detalhes por rota
         let detailsHtml = '<div style="margin-top: 15px; font-size: 0.8rem;"><strong>Confrontos por Rota:</strong><br>';
         for (const role of POSITIONS) {
             const blueScore = blueScores[role] || 0;
@@ -828,7 +929,6 @@ document.addEventListener("DOMContentLoaded", function () {
         }
         detailsHtml += '</div>';
         
-        // Verificar se ja existe o elemento de detalhes
         let detailsDiv = document.getElementById("role-balance-details");
         if (!detailsDiv) {
             detailsDiv = document.createElement("div");
@@ -838,9 +938,6 @@ document.addEventListener("DOMContentLoaded", function () {
         detailsDiv.innerHTML = detailsHtml;
     }
     
-    /**
-     * Sorteio simples (sem balanceamento) - para menos de 10 jogadores
-     */
     function performSimpleShuffle(playerList) {
         const shuffled = shuffleArray(playerList);
         teams.blue = [];
@@ -862,7 +959,6 @@ document.addEventListener("DOMContentLoaded", function () {
             }));
         }
         
-        // Calcular totais para mostrar
         const blueTotal = teams.blue.reduce((sum, p) => sum + (p.score || 0), 0);
         const redTotal = teams.red.reduce((sum, p) => sum + (p.score || 0), 0);
         showBalanceInfo(blueTotal, redTotal);
@@ -905,7 +1001,6 @@ document.addEventListener("DOMContentLoaded", function () {
         if (blueLabel) blueLabel.textContent = blueScore + " pts";
         if (redLabel) redLabel.textContent = redScore + " pts";
         
-        // Remover detalhes antigos se existirem
         const detailsDiv = document.getElementById("role-balance-details");
         if (detailsDiv) detailsDiv.remove();
     }
