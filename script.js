@@ -1,13 +1,17 @@
 // ============================================================
 //  MEGAXODIA - script.js (versao balanceada por rotas)
-//  Com suporte a CORS e fallback para file://
+//  Com ordenacao alfabetica, sync com Google Sheets e sorteios variados
 // ============================================================
 
 document.addEventListener("DOMContentLoaded", function () {
 
     // ========== CONFIGURAÇÃO GOOGLE SHEETS ====================
-    // URL da planilha publicada como CSV
-    const GOOGLE_SHEETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSdjynSygFolQeWUGPm7VG9hjW4_9mjYAzs6I3ev2O44i4TCb5GxGSacuy8tH6vyo3CnVgcTsXHuLoD/pub?output=csv";
+    // URL da planilha publicada como CSV (use esta)
+    // Para publicar: Arquivo > Compartilhar > Publicar na web > CSV
+    const GOOGLE_SHEETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQlTceJjbWHm-q8O7uBbXW-aTSjuOmMTP1XN0MlNUFCWgKYsDRO39muYuN-YBSdDSzpJlWl8lg8OXEs/pub?output=csv";
+    
+    // Fallback: URL XLSX (menos ideal, mas pode funcionar)
+    const GOOGLE_SHEETS_XLSX_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQlTceJjbWHm-q8O7uBbXW-aTSjuOmMTP1XN0MlNUFCWgKYsDRO39muYuN-YBSdDSzpJlWl8lg8OXEs/pub?output=xlsx";
     
     // URLs de proxy CORS gratuitos (fallback se falhar)
     const CORS_PROXIES = [
@@ -18,6 +22,9 @@ document.addEventListener("DOMContentLoaded", function () {
     
     // Verificar se está rodando localmente (file://)
     const isLocalFile = window.location.protocol === 'file:';
+    
+    // Armazenar último sorteio para evitar repetição
+    let lastShuffleHash = null;
     
     // ========== NAVEGACAO ====================================
     const navHome       = document.getElementById("nav-home");
@@ -79,13 +86,24 @@ document.addEventListener("DOMContentLoaded", function () {
     let draggedPlayerId = null;
     let isSyncing = false;
 
+    // ========== FUNÇÕES DE ORDENAÇÃO ==========================
+    function sortPlayersAlphabetically(players) {
+        return [...players].sort((a, b) => a.name.localeCompare(b.name));
+    }
+    
+    function sortPlayersAlphabeticallyByIds(ids) {
+        const players = ids.map(id => registeredPlayers.find(p => p.id === id)).filter(Boolean);
+        const sorted = sortPlayersAlphabetically(players);
+        return sorted.map(p => p.id);
+    }
+
     // ========== INIT ==========================================
     document.getElementById("current-year").textContent = new Date().getFullYear();
 
     navHome.addEventListener("click", () => showSection("home"));
     navJogadores.addEventListener("click", () => showSection("jogadores"));
     navSorteador.addEventListener("click", () => showSection("sorteador"));
-    shuffleButton.addEventListener("click", handleShuffle);
+    shuffleButton.addEventListener("click", () => handleShuffle(true)); // true = permitir repetição
     newShuffleButton.addEventListener("click", resetShuffle);
     copyTeamsButton.addEventListener("click", () => copyTeamsToClipboard(copyTeamsButton));
     blueTeamGrid.addEventListener("click", handlePlayerClick);
@@ -124,7 +142,6 @@ document.addEventListener("DOMContentLoaded", function () {
      */
     async function fetchCSVWithCORS(url, useProxy = false) {
         if (useProxy || isLocalFile) {
-            // Tentar cada proxy até funcionar
             for (const proxy of CORS_PROXIES) {
                 try {
                     const proxyUrl = proxy + encodeURIComponent(url);
@@ -138,7 +155,6 @@ document.addEventListener("DOMContentLoaded", function () {
             }
             throw new Error("Todos os proxies CORS falharam");
         } else {
-            // Tentar diretamente (funciona no GitHub Pages)
             const response = await fetch(url);
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             return await response.text();
@@ -152,7 +168,6 @@ document.addEventListener("DOMContentLoaded", function () {
         }
         isSyncing = true;
         
-        // Salvar texto original do botão
         const originalText = btnSyncGoogle ? btnSyncGoogle.textContent : null;
         if (btnSyncGoogle && showAlert) {
             btnSyncGoogle.textContent = "?? Sincronizando...";
@@ -160,26 +175,31 @@ document.addEventListener("DOMContentLoaded", function () {
         }
         
         let success = false;
-        let proxyUsed = false;
         
         try {
             let csvText = null;
             
-            // Tentar primeiro sem proxy (funciona no GitHub Pages)
+            // Tentar primeiro com CSV (recomendado)
             if (!isLocalFile) {
                 try {
                     csvText = await fetchCSVWithCORS(GOOGLE_SHEETS_CSV_URL, false);
-                    console.log("Sincronização direta bem-sucedida");
-                } catch (directError) {
-                    console.log("Falha na sincronização direta, tentando com proxy:", directError.message);
-                    csvText = await fetchCSVWithCORS(GOOGLE_SHEETS_CSV_URL, true);
-                    proxyUsed = true;
-                    console.log("Sincronização via proxy bem-sucedida");
+                    console.log("Sincronização CSV bem-sucedida");
+                } catch (csvError) {
+                    console.log("Falha no CSV, tentando XLSX:", csvError.message);
+                    // Tentar com XLSX
+                    const xlsxResponse = await fetch(GOOGLE_SHEETS_XLSX_URL);
+                    if (xlsxResponse.ok) {
+                        const xlsxData = await xlsxResponse.arrayBuffer();
+                        const workbook = XLSX.read(xlsxData, { type: "array" });
+                        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                        csvText = XLSX.utils.sheet_to_csv(firstSheet);
+                    } else {
+                        throw new Error("Falha ao baixar XLSX");
+                    }
                 }
             } else {
-                // Local file: usar proxy sempre
+                // Local file: usar proxy com CSV
                 csvText = await fetchCSVWithCORS(GOOGLE_SHEETS_CSV_URL, true);
-                proxyUsed = true;
                 console.log("Modo local: sincronização via proxy");
             }
             
@@ -254,18 +274,17 @@ document.addEventListener("DOMContentLoaded", function () {
             }
             
             if (newPlayers.length > 0) {
-                registeredPlayers = newPlayers;
+                registeredPlayers = sortPlayersAlphabetically(newPlayers);
                 savePlayers();
                 renderPlayersList();
                 renderAvailablePlayers();
                 renderSelectedPlayers();
                 success = true;
                 
-                const proxyMsg = proxyUsed ? " (via proxy CORS)" : "";
                 if (showAlert) {
-                    alert(`Sincronização concluída!${proxyMsg}\n${added} jogadores adicionados, ${updated} atualizados.`);
+                    alert(`Sincronização concluída!\n${added} jogadores adicionados, ${updated} atualizados.`);
                 } else {
-                    console.log(`Sincronização automática: ${added} adicionados, ${updated} atualizados${proxyMsg}`);
+                    console.log(`Sincronização automática: ${added} adicionados, ${updated} atualizados`);
                 }
             } else if (showAlert) {
                 alert("Nenhuma alteração encontrada na planilha.");
@@ -276,11 +295,7 @@ document.addEventListener("DOMContentLoaded", function () {
             console.error("Erro na sincronização:", error);
             if (showAlert) {
                 let errorMsg = `Erro ao sincronizar com Google Sheets:\n${error.message}\n\n`;
-                if (isLocalFile) {
-                    errorMsg += `Você está rodando localmente (file://).\nPara sincronizar, use o site online:\nhttps://nicolas97ti.github.io/megaxodia/\n\nOu instale a extensão "CORS Unblock" no navegador.`;
-                } else {
-                    errorMsg += `Verifique se a planilha está publicada como CSV:\nArquivo > Publicar na web > CSV`;
-                }
+                errorMsg += `Verifique se a planilha está publicada como CSV:\nArquivo > Compartilhar > Publicar na web > CSV`;
                 alert(errorMsg);
             }
         } finally {
@@ -339,38 +354,34 @@ document.addEventListener("DOMContentLoaded", function () {
     //  CARREGAMENTO INICIAL
     // ==========================================================
     async function loadInitialData() {
-        // Primeiro, carrega dados salvos localmente (fallback)
         const saved = localStorage.getItem("megaxodia_players");
         if (saved && saved !== "[]") {
-            registeredPlayers = JSON.parse(saved);
+            registeredPlayers = sortPlayersAlphabetically(JSON.parse(saved));
             renderPlayersList();
             renderAvailablePlayers();
             renderSelectedPlayers();
             showSection("home");
         } else {
-            // Se não há dados salvos, usa dados padrão
-            registeredPlayers = getDefaultPlayers();
+            registeredPlayers = sortPlayersAlphabetically(getDefaultPlayers());
             renderPlayersList();
             renderAvailablePlayers();
             renderSelectedPlayers();
             showSection("home");
         }
         
-        // Tenta sincronizar com Google Sheets em segundo plano
-        // Se falhar (CORS local), não mostra alerta
         await syncWithGoogleSheets(false);
     }
     
     function getDefaultPlayers() {
         return [
-            { id: "1", name: "Nicolas", top: 4, jg: 1, mid: 3, adc: 3, sup: 3 },
-            { id: "2", name: "Joao", top: 1, jg: 3, mid: 4, adc: 2, sup: 1 },
-            { id: "3", name: "Erick", top: 2, jg: 2, mid: 5, adc: 4, sup: 3 },
-            { id: "4", name: "Davi", top: 3, jg: 3, mid: 2, adc: 2, sup: 2 },
-            { id: "5", name: "Erao", top: 1, jg: 4, mid: 3, adc: 1, sup: 4 },
-            { id: "6", name: "Caio", top: 2, jg: 1, mid: 1, adc: 4, sup: 4 },
-            { id: "7", name: "Eboy", top: 5, jg: 2, mid: 4, adc: 3, sup: 1 },
-            { id: "8", name: "Giva", top: 1, jg: 3, mid: 2, adc: 3, sup: 5 }
+            { id: "1", name: "Caio", top: 2, jg: 1, mid: 1, adc: 4, sup: 4 },
+            { id: "2", name: "Davi", top: 3, jg: 3, mid: 2, adc: 2, sup: 2 },
+            { id: "3", name: "Eboy", top: 5, jg: 2, mid: 4, adc: 3, sup: 1 },
+            { id: "4", name: "Erao", top: 1, jg: 4, mid: 3, adc: 1, sup: 4 },
+            { id: "5", name: "Erick", top: 2, jg: 2, mid: 5, adc: 4, sup: 3 },
+            { id: "6", name: "Giva", top: 1, jg: 3, mid: 2, adc: 3, sup: 5 },
+            { id: "7", name: "Joao", top: 1, jg: 3, mid: 4, adc: 2, sup: 1 },
+            { id: "8", name: "Nicolas", top: 4, jg: 1, mid: 3, adc: 3, sup: 3 }
         ];
     }
     
@@ -508,7 +519,8 @@ document.addEventListener("DOMContentLoaded", function () {
         } else {
             registeredPlayers.push({ id: Date.now().toString(), name, ...scores });
         }
-
+        
+        registeredPlayers = sortPlayersAlphabetically(registeredPlayers);
         savePlayers();
         closeForm();
         renderPlayersList();
@@ -533,8 +545,10 @@ document.addEventListener("DOMContentLoaded", function () {
         const noMsg = document.getElementById("no-players-msg");
         const query = (playerSearch.value || "").toLowerCase().trim();
 
-        const filtered = registeredPlayers.filter(p =>
+        let filtered = registeredPlayers.filter(p =>
             p.name.toLowerCase().includes(query));
+        
+        filtered = sortPlayersAlphabetically(filtered);
 
         if (filtered.length === 0) {
             grid.innerHTML = "";
@@ -583,9 +597,11 @@ document.addEventListener("DOMContentLoaded", function () {
         const container = document.getElementById("available-players-list");
         const query = (sorteadorSearch ? sorteadorSearch.value : "").toLowerCase().trim();
 
-        const available = registeredPlayers.filter(p =>
+        let available = registeredPlayers.filter(p =>
             !selectedForSorteio.includes(p.id) &&
             p.name.toLowerCase().includes(query));
+        
+        available = sortPlayersAlphabetically(available);
 
         if (available.length === 0) {
             container.innerHTML = `<p class="no-players-msg" style="display:block">
@@ -626,7 +642,10 @@ document.addEventListener("DOMContentLoaded", function () {
         }
         if (hint) hint.style.display = "none";
 
-        container.innerHTML = selectedForSorteio.map(id => {
+        // Ordenar jogadores selecionados alfabeticamente
+        const sortedSelectedIds = sortPlayersAlphabeticallyByIds(selectedForSorteio);
+        
+        container.innerHTML = sortedSelectedIds.map(id => {
             const p = registeredPlayers.find(x => x.id === id);
             if (!p) return "";
             return `
@@ -666,7 +685,9 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function addAllToSorteio() {
-        const availablePlayers = registeredPlayers.filter(p => !selectedForSorteio.includes(p.id));
+        let availablePlayers = registeredPlayers.filter(p => !selectedForSorteio.includes(p.id));
+        availablePlayers = sortPlayersAlphabetically(availablePlayers);
+        
         if (availablePlayers.length === 0) return;
         const currentCount = selectedForSorteio.length;
         const availableSlots = 10 - currentCount;
@@ -694,8 +715,35 @@ document.addEventListener("DOMContentLoaded", function () {
     window._deletePlayer = (id) => deletePlayer(id);
 
     // ==========================================================
-    //  BALANCEAMENTO POR ROTAS
+    //  BALANCEAMENTO POR ROTAS COM VARIACAO
     // ==========================================================
+    
+    /**
+     * Gera um hash único para um sorteio (para evitar repetição)
+     */
+    function generateShuffleHash(blueTeam, redTeam) {
+        const blueStr = blueTeam.map(p => `${p.position}:${p.name}`).sort().join('|');
+        const redStr = redTeam.map(p => `${p.position}:${p.name}`).sort().join('|');
+        return `${blueStr}|${redStr}`;
+    }
+    
+    /**
+     * Embaralha com semente aleatória para dar variação nos sorteios
+     */
+    function deterministicShuffle(array, seed) {
+        const shuffled = [...array];
+        let currentIndex = shuffled.length;
+        let random;
+        
+        while (currentIndex !== 0) {
+            random = Math.sin(seed + currentIndex) * 10000;
+            const randomIndex = Math.floor(Math.abs(random) % currentIndex);
+            currentIndex--;
+            [shuffled[currentIndex], shuffled[randomIndex]] = [shuffled[randomIndex], shuffled[currentIndex]];
+            seed++;
+        }
+        return shuffled;
+    }
     
     function getBestRoleForPlayer(player) {
         let bestRole = null;
@@ -712,14 +760,20 @@ document.addEventListener("DOMContentLoaded", function () {
         return { role: bestRole, score: bestScore };
     }
     
-    function performBalancedShuffle(playerList) {
+    function performBalancedShuffle(playerList, avoidRepeat = true, attempt = 0) {
         const players = [...playerList];
         const result = { blue: [], red: [] };
         const usedPlayers = new Set();
         
+        // Adicionar variação aleatória baseada no timestamp e tentativa
+        const seed = Date.now() + attempt * 1000 + Math.random() * 1000;
+        
+        // Embaralhar os jogadores antes de processar para dar variação
+        const shuffledPlayers = deterministicShuffle(players, seed);
+        
         for (const role of POSITIONS) {
             const roleKey = POSITION_MAP[role];
-            const availableForRole = players.filter(p => !usedPlayers.has(p.id));
+            const availableForRole = shuffledPlayers.filter(p => !usedPlayers.has(p.id));
             
             if (availableForRole.length === 0) break;
             
@@ -734,8 +788,12 @@ document.addEventListener("DOMContentLoaded", function () {
                     const score2 = p2[roleKey] || 3;
                     const diff = Math.abs(score1 - score2);
                     
-                    if (diff < bestDiff) {
-                        bestDiff = diff;
+                    // Adicionar pequena variação aleatória para desempatar
+                    const randomFactor = Math.sin(seed + i * roleKey.length) * 0.01;
+                    const adjustedDiff = diff + randomFactor;
+                    
+                    if (adjustedDiff < bestDiff) {
+                        bestDiff = adjustedDiff;
                         bestPair = [p1, p2];
                     }
                 }
@@ -746,7 +804,8 @@ document.addEventListener("DOMContentLoaded", function () {
                 const sorted = [...bestPair].sort((a, b) => {
                     const scoreA = a[roleKey] || 3;
                     const scoreB = b[roleKey] || 3;
-                    return scoreB - scoreA;
+                    const randomFactor = Math.sin(seed + a.id.length) * 0.01;
+                    return (scoreB - scoreA) + randomFactor;
                 });
                 
                 const stronger = sorted[0];
@@ -785,7 +844,7 @@ document.addEventListener("DOMContentLoaded", function () {
             }
         }
         
-        const remainingPlayers = players.filter(p => !usedPlayers.has(p.id));
+        const remainingPlayers = shuffledPlayers.filter(p => !usedPlayers.has(p.id));
         
         for (const player of remainingPlayers) {
             let bestRole = null;
@@ -833,8 +892,21 @@ document.addEventListener("DOMContentLoaded", function () {
         }
         
         // Garantir todas as rotas em cada time
-        const finalBlue = ensureAllRoles(result.blue, "blue");
-        const finalRed = ensureAllRoles(result.red, "red");
+        const finalBlue = ensureAllRoles(result.blue);
+        const finalRed = ensureAllRoles(result.red);
+        
+        // Verificar se já sorteamos esta combinação antes (para evitar repetição)
+        if (avoidRepeat && lastShuffleHash) {
+            const currentHash = generateShuffleHash(finalBlue, finalRed);
+            if (currentHash === lastShuffleHash && attempt < 10) {
+                // Recursivamente tenta um novo sorteio com semente diferente
+                console.log("Sorteio repetido, tentando novamente... tentativa", attempt + 1);
+                return performBalancedShuffle(playerList, avoidRepeat, attempt + 1);
+            }
+            lastShuffleHash = currentHash;
+        } else if (avoidRepeat) {
+            lastShuffleHash = generateShuffleHash(finalBlue, finalRed);
+        }
         
         const blueScoresByRole = {};
         const redScoresByRole = {};
@@ -858,7 +930,7 @@ document.addEventListener("DOMContentLoaded", function () {
         finalizeShuffle();
     }
     
-    function ensureAllRoles(team, teamColor) {
+    function ensureAllRoles(team) {
         const result = [...team];
         const usedRoles = new Set(result.map(p => p.position));
         const missingRoles = POSITIONS.filter(role => !usedRoles.has(role));
@@ -938,8 +1010,13 @@ document.addEventListener("DOMContentLoaded", function () {
         detailsDiv.innerHTML = detailsHtml;
     }
     
-    function performSimpleShuffle(playerList) {
-        const shuffled = shuffleArray(playerList);
+    function performSimpleShuffle(playerList, avoidRepeat = true, attempt = 0) {
+        let shuffled = shuffleArray(playerList);
+        
+        // Adicionar variação aleatória baseada no timestamp
+        const seed = Date.now() + attempt * 1000;
+        shuffled = deterministicShuffle(playerList, seed);
+        
         teams.blue = [];
         teams.red = [];
 
@@ -959,6 +1036,18 @@ document.addEventListener("DOMContentLoaded", function () {
             }));
         }
         
+        // Verificar se já sorteamos esta combinação antes
+        if (avoidRepeat && lastShuffleHash && attempt < 10) {
+            const currentHash = generateShuffleHash(teams.blue, teams.red);
+            if (currentHash === lastShuffleHash) {
+                console.log("Sorteio repetido no modo simples, tentando novamente... tentativa", attempt + 1);
+                return performSimpleShuffle(playerList, avoidRepeat, attempt + 1);
+            }
+            lastShuffleHash = currentHash;
+        } else if (avoidRepeat) {
+            lastShuffleHash = generateShuffleHash(teams.blue, teams.red);
+        }
+        
         const blueTotal = teams.blue.reduce((sum, p) => sum + (p.score || 0), 0);
         const redTotal = teams.red.reduce((sum, p) => sum + (p.score || 0), 0);
         showBalanceInfo(blueTotal, redTotal);
@@ -966,7 +1055,7 @@ document.addEventListener("DOMContentLoaded", function () {
         finalizeShuffle();
     }
     
-    function handleShuffle() {
+    function handleShuffle(allowRepeat = true) {
         const playerObjs = selectedForSorteio
             .map(id => registeredPlayers.find(p => p.id === id))
             .filter(Boolean);
@@ -982,9 +1071,9 @@ document.addEventListener("DOMContentLoaded", function () {
 
         const useBalance = balanceToggle && balanceToggle.checked;
         if (useBalance && playerObjs.length === 10) {
-            performBalancedShuffle(playerObjs);
+            performBalancedShuffle(playerObjs, !allowRepeat);
         } else {
-            performSimpleShuffle(playerObjs);
+            performSimpleShuffle(playerObjs, !allowRepeat);
         }
     }
 
@@ -1256,6 +1345,8 @@ document.addEventListener("DOMContentLoaded", function () {
             copyTeamsButton.textContent = "Copiar Times";
             copyTeamsButton.disabled = false;
         }
+        // Reset do hash para permitir o mesmo sorteio novamente após reset
+        lastShuffleHash = null;
     }
 
     // ==========================================================
@@ -1358,6 +1449,7 @@ document.addEventListener("DOMContentLoaded", function () {
                     }
                 });
 
+                registeredPlayers = sortPlayersAlphabetically(registeredPlayers);
                 savePlayers();
                 renderPlayersList();
                 renderAvailablePlayers();
