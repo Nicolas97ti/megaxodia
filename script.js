@@ -1,25 +1,22 @@
 // ============================================================
 //  MEGAXODIA - script.js (versao balanceada por rotas)
-//  Com ordenacao alfabetica, sync com Google Sheets e sorteios variados
+//  Com dados atualizados e sync com Google Sheets
 // ============================================================
 
 document.addEventListener("DOMContentLoaded", function () {
 
     // ========== CONFIGURAÇÃO GOOGLE SHEETS ====================
-    // URL da planilha publicada como CSV
-    const GOOGLE_SHEETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQlTceJjbWHm-q8O7uBbXW-aTSjuOmMTP1XN0MlNUFCWgKYsDRO39muYuN-YBSdDSzpJlWl8lg8OXEs/pub?output=csv";
+
+    const GOOGLE_SHEETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRwc4bR7CEcbyWph4Ljn6mBWpR5twn7JyzZD-a30WEDxfrMpddDrIZWWU5z-wnKP9QoqSRCF9BnL3_M/pub?output=csv";
     
-    // URLs de proxy CORS gratuitos (fallback se falhar)
+    // URLs de proxy CORS
     const CORS_PROXIES = [
         "https://api.allorigins.win/raw?url=",
         "https://corsproxy.io/?",
         "https://cors-anywhere.herokuapp.com/"
     ];
     
-    // Verificar se está rodando localmente (file://)
     const isLocalFile = window.location.protocol === 'file:';
-    
-    // Armazenar último sorteio para evitar repetição
     let lastShuffleHash = null;
     
     // ========== NAVEGACAO ====================================
@@ -82,6 +79,30 @@ document.addEventListener("DOMContentLoaded", function () {
     let draggedPlayerId = null;
     let isSyncing = false;
 
+    // ========== DADOS PADRÃO ATUALIZADOS ======================
+    function getDefaultPlayers() {
+        return [
+            { id: "1", name: "Nicolas", top: 4, jg: 3, mid: 2, adc: 3, sup: 3 },
+            { id: "2", name: "Bugboss", top: 2, jg: 2, mid: 2, adc: 2, sup: 3 },
+            { id: "3", name: "Mewkas", top: 4, jg: 4, mid: 5, adc: 5, sup: 4 },
+            { id: "4", name: "Davil", top: 3, jg: 3, mid: 3, adc: 5, sup: 4 },
+            { id: "5", name: "Erao", top: 3, jg: 2, mid: 3, adc: 2, sup: 4 },
+            { id: "6", name: "Caio", top: 3, jg: 4, mid: 3, adc: 3, sup: 3 },
+            { id: "7", name: "Eboy", top: 4, jg: 5, mid: 5, adc: 5, sup: 2 },
+            { id: "8", name: "Giva", top: 1, jg: 1, mid: 1, adc: 1, sup: 2 },
+            { id: "9", name: "Dalto", top: 5, jg: 3, mid: 3, adc: 5, sup: 5 },
+            { id: "10", name: "Capivara", top: 3, jg: 5, mid: 2, adc: 2, sup: 4 },
+            { id: "11", name: "Liloca", top: 2, jg: 1, mid: 2, adc: 1, sup: 2 },
+            { id: "12", name: "Antonio", top: 3, jg: 4, mid: 2, adc: 4, sup: 4 },
+            { id: "13", name: "Cadu", top: 5, jg: 5, mid: 5, adc: 5, sup: 5 },
+            { id: "14", name: "Dods", top: 3, jg: 2, mid: 4, adc: 2, sup: 3 },
+            { id: "15", name: "Emano", top: 2, jg: 4, mid: 3, adc: 2, sup: 2 },
+            { id: "16", name: "Pedro", top: 3, jg: 2, mid: 2, adc: 3, sup: 3 },
+            { id: "17", name: "Well", top: 2, jg: 2, mid: 5, adc: 2, sup: 3 },
+            { id: "18", name: "Gordeta", top: 3, jg: 3, mid: 2, adc: 2, sup: 2 }
+        ];
+    }
+
     // ========== FUNÇÕES DE ORDENAÇÃO ==========================
     function sortPlayersAlphabetically(players) {
         return [...players].sort((a, b) => a.name.localeCompare(b.name));
@@ -121,7 +142,6 @@ document.addEventListener("DOMContentLoaded", function () {
     document.querySelectorAll("input[name='revealMode']").forEach(r =>
         r.addEventListener("change", function () { 
             revealMode = this.value;
-            // Quando mudar o modo, re-renderizar para aplicar o comportamento correto
             if (teams.blue.length > 0 || teams.red.length > 0) {
                 updateInitialVisualState();
             }
@@ -130,7 +150,6 @@ document.addEventListener("DOMContentLoaded", function () {
         r.addEventListener("change", function () { teamOption = this.value; }));
 
     initStarRatings();
-    
     loadInitialData();
     
     // ==========================================================
@@ -138,12 +157,12 @@ document.addEventListener("DOMContentLoaded", function () {
     // ==========================================================
     
     async function fetchGoogleSheetCSV() {
-        // Tentar diretamente primeiro (funciona no GitHub Pages)
+        // Tentar diretamente primeiro
         try {
             const response = await fetch(GOOGLE_SHEETS_CSV_URL);
             if (response.ok) {
                 const text = await response.text();
-                if (text && text.trim().length > 0) {
+                if (text && text.trim().length > 0 && text.includes(',')) {
                     return text;
                 }
             }
@@ -158,7 +177,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 const response = await fetch(proxyUrl);
                 if (response.ok) {
                     const text = await response.text();
-                    if (text && text.trim().length > 0) {
+                    if (text && text.trim().length > 0 && text.includes(',')) {
                         return text;
                     }
                 }
@@ -177,9 +196,7 @@ document.addEventListener("DOMContentLoaded", function () {
         for (const line of lines) {
             if (line.trim() === "") continue;
             
-            // Limpar caracteres especiais no início da linha
             let cleanLine = line.trim();
-            
             const row = [];
             let current = "";
             let inQuotes = false;
@@ -198,13 +215,11 @@ document.addEventListener("DOMContentLoaded", function () {
             }
             row.push(current.trim());
             
-            // Limpar aspas das células
             const cleanRow = row.map(cell => {
                 let cleaned = cell;
                 if (cleaned.startsWith('"') && cleaned.endsWith('"')) {
                     cleaned = cleaned.slice(1, -1);
                 }
-                // Remover caracteres não imprimíveis
                 cleaned = cleaned.replace(/[^\x20-\x7E\u00C0-\u00FF]/g, '');
                 return cleaned;
             });
@@ -332,6 +347,7 @@ document.addEventListener("DOMContentLoaded", function () {
     //  CARREGAMENTO INICIAL
     // ==========================================================
     async function loadInitialData() {
+        // Carregar dados salvos localmente primeiro
         const saved = localStorage.getItem("megaxodia_players");
         if (saved && saved !== "[]") {
             registeredPlayers = sortPlayersAlphabetically(JSON.parse(saved));
@@ -340,28 +356,17 @@ document.addEventListener("DOMContentLoaded", function () {
             renderSelectedPlayers();
             showSection("home");
         } else {
+            // Usar os dados padrão atualizados
             registeredPlayers = sortPlayersAlphabetically(getDefaultPlayers());
+            savePlayers();
             renderPlayersList();
             renderAvailablePlayers();
             renderSelectedPlayers();
             showSection("home");
         }
         
-        // Sincronização silenciosa em segundo plano
-        setTimeout(() => syncWithGoogleSheets(false), 500);
-    }
-    
-    function getDefaultPlayers() {
-        return [
-            { id: "1", name: "Caio", top: 2, jg: 1, mid: 1, adc: 4, sup: 4 },
-            { id: "2", name: "Davi", top: 3, jg: 3, mid: 2, adc: 2, sup: 2 },
-            { id: "3", name: "Eboy", top: 5, jg: 2, mid: 4, adc: 3, sup: 1 },
-            { id: "4", name: "Erao", top: 1, jg: 4, mid: 3, adc: 1, sup: 4 },
-            { id: "5", name: "Erick", top: 2, jg: 2, mid: 5, adc: 4, sup: 3 },
-            { id: "6", name: "Giva", top: 1, jg: 3, mid: 2, adc: 3, sup: 5 },
-            { id: "7", name: "Joao", top: 1, jg: 3, mid: 4, adc: 2, sup: 1 },
-            { id: "8", name: "Nicolas", top: 4, jg: 1, mid: 3, adc: 3, sup: 3 }
-        ];
+        // Tentar sincronizar com Google Sheets em segundo plano
+        setTimeout(() => syncWithGoogleSheets(false), 1000);
     }
     
     function savePlayers() {
@@ -517,7 +522,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     // ==========================================================
-    //  RENDER PLAYERS LIST
+    //  RENDER FUNCTIONS
     // ==========================================================
     function renderPlayersList() {
         const grid = document.getElementById("players-grid");
@@ -569,9 +574,6 @@ document.addEventListener("DOMContentLoaded", function () {
         return s;
     }
 
-    // ==========================================================
-    //  SORTEADOR - Available & Selected players
-    // ==========================================================
     function renderAvailablePlayers() {
         const container = document.getElementById("available-players-list");
         const query = (sorteadorSearch ? sorteadorSearch.value : "").toLowerCase().trim();
@@ -693,7 +695,7 @@ document.addEventListener("DOMContentLoaded", function () {
     window._deletePlayer = (id) => deletePlayer(id);
 
     // ==========================================================
-    //  BALANCEAMENTO POR ROTAS COM VARIACAO
+    //  BALANCEAMENTO POR ROTAS (VERSÃO SIMPLIFICADA E FUNCIONAL)
     // ==========================================================
     
     function generateShuffleHash(blueTeam, redTeam) {
@@ -864,7 +866,7 @@ document.addEventListener("DOMContentLoaded", function () {
         if (avoidRepeat && lastShuffleHash && attempt < 10) {
             const currentHash = generateShuffleHash(finalBlue, finalRed);
             if (currentHash === lastShuffleHash) {
-                console.log("Sorteio repetido, tentando novamente... tentativa", attempt + 1);
+                console.log("Sorteio repetido, tentando novamente...");
                 return performBalancedShuffle(playerList, avoidRepeat, attempt + 1);
             }
             lastShuffleHash = currentHash;
@@ -1000,7 +1002,6 @@ document.addEventListener("DOMContentLoaded", function () {
         if (avoidRepeat && lastShuffleHash && attempt < 10) {
             const currentHash = generateShuffleHash(teams.blue, teams.red);
             if (currentHash === lastShuffleHash) {
-                console.log("Sorteio repetido no modo simples, tentando novamente... tentativa", attempt + 1);
                 return performSimpleShuffle(playerList, avoidRepeat, attempt + 1);
             }
             lastShuffleHash = currentHash;
@@ -1178,7 +1179,7 @@ document.addEventListener("DOMContentLoaded", function () {
                     card.classList.remove("blue", "red");
                     nameEl.textContent = "";
                 }
-            } else { // click mode
+            } else {
                 card.classList.remove("hidden");
                 card.classList.add(teamColor);
                 if (revealedOnClick.has(`${teamColor}-${index}`)) {
@@ -1197,7 +1198,6 @@ document.addEventListener("DOMContentLoaded", function () {
             if (!nameEl || !teams[teamColor][index]) return;
 
             if (revealMode === "click") {
-                // Modo clique: esconder todos os nomes inicialmente
                 pos.classList.remove("hidden");
                 pos.classList.add(`${teamColor}-revealed`);
                 if (revealedOnClick.has(`${teamColor}-${index}`)) {
@@ -1209,7 +1209,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 pos.classList.remove("hidden");
                 pos.classList.add(`${teamColor}-revealed`);
                 nameEl.textContent = teams[teamColor][index].name;
-            } else { // gradual mode
+            } else {
                 if (isPlayerRevealed(teamColor, index)) {
                     pos.classList.remove("hidden");
                     pos.classList.add(`${teamColor}-revealed`);
