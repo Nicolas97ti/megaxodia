@@ -6,17 +6,14 @@
 document.addEventListener("DOMContentLoaded", function () {
 
     // ========== CONFIGURAÇÃO GOOGLE SHEETS ====================
-
     const GOOGLE_SHEETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRwc4bR7CEcbyWph4Ljn6mBWpR5twn7JyzZD-a30WEDxfrMpddDrIZWWU5z-wnKP9QoqSRCF9BnL3_M/pub?output=csv";
     
-    // URLs de proxy CORS
-    const CORS_PROXIES = [
-        "https://api.allorigins.win/raw?url=",
-        "https://corsproxy.io/?",
-        "https://cors-anywhere.herokuapp.com/"
-    ];
+    // Proxy CORS que funciona com Google Sheets (usando allorigins.win)
+    const CORS_PROXY = "https://api.allorigins.win/raw?url=";
     
+    // Verificar se está rodando localmente
     const isLocalFile = window.location.protocol === 'file:';
+    
     let lastShuffleHash = null;
     
     // ========== NAVEGACAO ====================================
@@ -157,36 +154,29 @@ document.addEventListener("DOMContentLoaded", function () {
     // ==========================================================
     
     async function fetchGoogleSheetCSV() {
-        // Tentar diretamente primeiro
-        try {
-            const response = await fetch(GOOGLE_SHEETS_CSV_URL);
-            if (response.ok) {
-                const text = await response.text();
-                if (text && text.trim().length > 0 && text.includes(',')) {
-                    return text;
-                }
-            }
-        } catch (e) {
-            console.log("Falha na requisição direta:", e.message);
+        // Usar o proxy CORS para contornar o erro 400
+        const proxyUrl = CORS_PROXY + encodeURIComponent(GOOGLE_SHEETS_CSV_URL);
+        
+        console.log("Tentando sincronizar via proxy:", proxyUrl);
+        
+        const response = await fetch(proxyUrl);
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
         
-        // Tentar com proxies
-        for (const proxy of CORS_PROXIES) {
-            try {
-                const proxyUrl = proxy + encodeURIComponent(GOOGLE_SHEETS_CSV_URL);
-                const response = await fetch(proxyUrl);
-                if (response.ok) {
-                    const text = await response.text();
-                    if (text && text.trim().length > 0 && text.includes(',')) {
-                        return text;
-                    }
-                }
-            } catch (e) {
-                console.log(`Proxy ${proxy} falhou:`, e.message);
-            }
+        const text = await response.text();
+        
+        // Verificar se o retorno é um CSV válido
+        if (!text || text.trim().length === 0) {
+            throw new Error("Resposta vazia do servidor");
         }
         
-        throw new Error("Não foi possível acessar a planilha do Google Sheets");
+        if (!text.includes(',') && !text.includes('Nome')) {
+            throw new Error("Resposta não parece ser um CSV válido");
+        }
+        
+        return text;
     }
     
     function parseGoogleSheetCSV(csvText) {
@@ -232,7 +222,7 @@ document.addEventListener("DOMContentLoaded", function () {
         return rows;
     }
     
-    async function syncWithGoogleSheets(showAlert = false) {
+     async function syncWithGoogleSheets(showAlert = false) {
         if (isSyncing) {
             if (showAlert) alert("Sincronização em andamento, aguarde...");
             return;
@@ -247,28 +237,75 @@ document.addEventListener("DOMContentLoaded", function () {
         
         try {
             const csvText = await fetchGoogleSheetCSV();
-            const rows = parseGoogleSheetCSV(csvText);
+            
+            // Parse do CSV (suporta linhas com aspas)
+            const rows = [];
+            const lines = csvText.split(/\r?\n/);
+            
+            for (const line of lines) {
+                if (line.trim() === "") continue;
+                
+                // Remover aspas do início e fim da linha se existirem
+                let cleanLine = line.trim();
+                if (cleanLine.startsWith('"') && cleanLine.endsWith('"')) {
+                    cleanLine = cleanLine.slice(1, -1);
+                }
+                
+                // Separar por vírgula, respeitando aspas
+                const row = [];
+                let current = "";
+                let inQuotes = false;
+                
+                for (let i = 0; i < cleanLine.length; i++) {
+                    const char = cleanLine[i];
+                    
+                    if (char === '"') {
+                        inQuotes = !inQuotes;
+                    } else if (char === ',' && !inQuotes) {
+                        row.push(current.trim());
+                        current = "";
+                    } else {
+                        current += char;
+                    }
+                }
+                row.push(current.trim());
+                
+                // Limpar aspas extras de cada célula
+                const cleanRow = row.map(cell => {
+                    let cleaned = cell;
+                    if (cleaned.startsWith('"') && cleaned.endsWith('"')) {
+                        cleaned = cleaned.slice(1, -1);
+                    }
+                    return cleaned;
+                });
+                
+                if (cleanRow.length > 0 && cleanRow.some(cell => cell.length > 0)) {
+                    rows.push(cleanRow);
+                }
+            }
             
             if (rows.length < 2) {
                 throw new Error("Planilha vazia ou formato inválido");
             }
             
-            const headers = rows[0];
+            const headers = rows[0].map(h => h.toLowerCase().trim());
             
+            // Encontrar índices (flexível)
             const nameIndex = headers.findIndex(h => 
-                h.toLowerCase() === 'nome' || 
-                h.toLowerCase() === 'name' ||
-                h.toLowerCase() === 'jogador'
+                h === 'nome' || 
+                h === 'name' || 
+                h.includes('nome') ||
+                h.includes('name')
             );
             
-            const topIndex = headers.findIndex(h => h.toLowerCase().includes('top'));
-            const jgIndex = headers.findIndex(h => h.toLowerCase().includes('jungle') || h.toLowerCase() === 'jg');
-            const midIndex = headers.findIndex(h => h.toLowerCase().includes('mid'));
-            const adcIndex = headers.findIndex(h => h.toLowerCase().includes('adc'));
-            const supIndex = headers.findIndex(h => h.toLowerCase().includes('support') || h.toLowerCase() === 'sup');
+            const topIndex = headers.findIndex(h => h.includes('top'));
+            const jgIndex = headers.findIndex(h => h.includes('jungle') || h === 'jg');
+            const midIndex = headers.findIndex(h => h.includes('mid'));
+            const adcIndex = headers.findIndex(h => h.includes('adc'));
+            const supIndex = headers.findIndex(h => h.includes('support') || h === 'sup');
             
             if (nameIndex === -1) {
-                throw new Error("Coluna 'Nome' não encontrada na planilha");
+                throw new Error(`Coluna 'Nome' não encontrada. Headers: ${headers.join(', ')}`);
             }
             
             let added = 0, updated = 0;
@@ -323,7 +360,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 if (showAlert) {
                     alert(`Sincronização concluída!\n${added} jogadores adicionados, ${updated} atualizados.`);
                 } else {
-                    console.log(`Sincronização automática: ${added} adicionados, ${updated} atualizados`);
+                    console.log(`Sincronização automática: +${added} / ~${updated}`);
                 }
             } else if (showAlert) {
                 alert("Nenhuma alteração encontrada na planilha.");
@@ -332,7 +369,7 @@ document.addEventListener("DOMContentLoaded", function () {
         } catch (error) {
             console.error("Erro na sincronização:", error);
             if (showAlert) {
-                alert(`Erro ao sincronizar com Google Sheets:\n${error.message}\n\nVerifique se a planilha está publicada como CSV:\nArquivo > Compartilhar > Publicar na web > CSV`);
+                alert(`? Erro ao sincronizar:\n${error.message}\n\nTente novamente mais tarde.`);
             }
         } finally {
             isSyncing = false;
