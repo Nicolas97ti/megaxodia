@@ -9,8 +9,13 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware
-app.use(cors()); // Permite requisições do frontend (GitHub Pages)
+// CORS configurado para aceitar o GitHub Pages
+app.use(cors({
+    origin: ['https://nicolas97ti.github.io', 'http://localhost:3000', 'http://localhost:8080'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
 app.use(express.json());
 
 const connectDB = async () => {
@@ -24,7 +29,10 @@ const connectDB = async () => {
 
 connectDB();
 
-// ========== ROTAS DA API ==========
+// Rota de teste
+app.get("/", (req, res) => {
+    res.json({ message: "API Megaxodia está funcionando!" });
+});
 
 // CREATE
 app.post("/jogador", async (req, res) => {
@@ -84,4 +92,4 @@ app.delete("/jogador/:id", async (req, res) => {
     }
 });
 
-app.listen(PORT, () => console.log(`Servidor API rodando na porta ${PORT}`));
+app.listen(PORT, () => console.log(`?? Servidor rodando na porta ${PORT}`));
