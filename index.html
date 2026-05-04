@@ -60,7 +60,6 @@
                             <input type="file" id="excel-import" accept=".xlsx,.xls" style="display:none">
                         </label>
                         <button id="btn-export-excel" class="secondary-button">Exportar Excel</button>
-                        <button id="btn-sync-google" class="secondary-button"> Atualizar dados</button>
                     </div>
             </div>
 
@@ -71,7 +70,7 @@
                     <input type="hidden" id="edit-player-id">
                     <div class="form-group">
                         <label>Nome do Jogador</label>
-                        <input type="text" id="form-player-name" placeholder="Ex: Nicolas" class="form-input">
+                        <input type="text" id="form-player-name" placeholder="Ex: Sibito" class="form-input">
                     </div>
                     <div class="form-scores">
                         <div class="form-score-item">
@@ -137,8 +136,8 @@
                             <div class="selected-header">
                                 <h3>No Sorteio <span id="selected-count" class="count-badge">0/10</span></h3>
                                 <div class="selected-actions">
-                                    <button id="add-all-btn" class="small-button" title="Adicionar todos os jogadores (max 10)">Adicionar Todos</button>
-                                    <button id="remove-all-btn" class="small-button danger" title="Remover todos os jogadores">Remover Todos</button>
+                                    <button id="add-all-btn" class="small-button">Adicionar Todos</button>
+                                    <button id="remove-all-btn" class="small-button danger">Remover Todos</button>
                                 </div>
                             </div>
                             <div id="selected-players-list" class="selected-players-list" 
@@ -153,7 +152,6 @@
                                 <h3>Modo de Revelacao:</h3>
                                 <div class="options-container">
                                     <label><input type="radio" name="revealMode" value="all" checked><span>Revelar todos</span></label>
-                                    <label><input type="radio" name="revealMode" value="gradual"><span>Revelar um por um</span></label>
                                     <label><input type="radio" name="revealMode" value="click"><span>Revelar ao clicar</span></label>
                                 </div>
                             </div>
@@ -170,7 +168,6 @@
                         <div class="balance-toggle-row">
                             <label class="toggle-label">
                                 <input type="checkbox" id="balance-toggle" checked>
-                                <span class="toggle-slider"></span>
                                 <span>Sorteio Balanceado por Rotas</span>
                             </label>
                         </div>
@@ -227,6 +224,7 @@
                         </div>
                         <div id="red-score-label" class="balance-score">0</div>
                     </div>
+                    <div id="role-balance-details" class="role-balance-details"></div>
                 </div>
 
                 <div class="results-buttons">

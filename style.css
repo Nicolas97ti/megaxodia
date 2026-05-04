@@ -918,6 +918,25 @@ footer p {
     background-color: #cc0000;
 }
 
+/* Estilo para confrontos por rota */
+.role-balance-details {
+    margin-top: 20px;
+    background: var(--dark-gray);
+    border-radius: 10px;
+    padding: 15px;
+}
+
+.role-balance-details h4 {
+    color: var(--megaxodia-gold);
+    margin-bottom: 15px;
+    text-align: center;
+}
+
+/* Modal de senha */
+#password-modal input {
+    font-size: 16px;
+}
+
 /* Ajuste para mobile */
 @media (max-width: 768px) {
     .selected-header {

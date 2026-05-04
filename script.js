@@ -1,19 +1,22 @@
 // ============================================================
-//  MEGAXODIA - script.js (versao balanceada por rotas)
-//  Com dados atualizados e sync com Google Sheets
+//  MEGAXODIA - script.js (versao com MongoDB)
+//  Dados salvos no banco de dados
 // ============================================================
 
 document.addEventListener("DOMContentLoaded", function () {
 
-    // ========== CONFIGURAÇÃO GOOGLE SHEETS ====================
-    const GOOGLE_SHEETS_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRwc4bR7CEcbyWph4Ljn6mBWpR5twn7JyzZD-a30WEDxfrMpddDrIZWWU5z-wnKP9QoqSRCF9BnL3_M/pub?output=csv";
+    // ========== CONFIGURAÇÕES ================================
+    const API_URL = (() => {
+        if (window.location.hostname === 'nicolas97ti.github.io') {
+            return 'https://megaxodia-api.onrender.com';
+        }
+        return 'http://localhost:3000';
+    })();
     
-    // Proxy CORS que funciona com Google Sheets (usando allorigins.win)
-    const CORS_PROXY = "https://api.allorigins.win/raw?url=";
+    const ADMIN_PASSWORD = "mgxeditarpontos";
+    const STORAGE_KEY = "megaxodia_auth";
     
-    // Verificar se está rodando localmente
-    const isLocalFile = window.location.protocol === 'file:';
-    
+    let isAuthenticated = localStorage.getItem(STORAGE_KEY) === "true";
     let lastShuffleHash = null;
     
     // ========== NAVEGACAO ====================================
@@ -52,7 +55,6 @@ document.addEventListener("DOMContentLoaded", function () {
     const sorteadorSearch  = document.getElementById("sorteador-search");
     const excelImport      = document.getElementById("excel-import");
     const btnExportExcel   = document.getElementById("btn-export-excel");
-    const btnSyncGoogle    = document.getElementById("btn-sync-google");
 
     const POSITIONS = ["Top", "Jungle", "Mid", "ADC", "Support"];
     const ROLES = ["top", "jg", "mid", "adc", "sup"];
@@ -70,34 +72,201 @@ document.addEventListener("DOMContentLoaded", function () {
     let teams = { blue: [], red: [] };
     let revealMode = "all";
     let teamOption = "both";
-    let gradualRevealTimer = null;
-    let gradualRevealCount = 0;
     let revealedOnClick = new Set();
     let draggedPlayerId = null;
-    let isSyncing = false;
+    let isLoading = false;
+    let pendingAction = null;
+    let pendingData = null;
 
-    // ========== DADOS PADRÃO ATUALIZADOS ======================
-    function getDefaultPlayers() {
-        return [
-            { id: "1", name: "Nicolas", top: 4, jg: 3, mid: 2, adc: 3, sup: 3 },
-            { id: "2", name: "Bugboss", top: 2, jg: 2, mid: 2, adc: 2, sup: 3 },
-            { id: "3", name: "Mewkas", top: 4, jg: 4, mid: 5, adc: 5, sup: 4 },
-            { id: "4", name: "Davil", top: 3, jg: 3, mid: 3, adc: 5, sup: 4 },
-            { id: "5", name: "Erao", top: 3, jg: 2, mid: 3, adc: 2, sup: 4 },
-            { id: "6", name: "Caio", top: 3, jg: 4, mid: 3, adc: 3, sup: 3 },
-            { id: "7", name: "Eboy", top: 4, jg: 5, mid: 5, adc: 5, sup: 2 },
-            { id: "8", name: "Giva", top: 1, jg: 1, mid: 1, adc: 1, sup: 2 },
-            { id: "9", name: "Dalto", top: 5, jg: 3, mid: 3, adc: 5, sup: 5 },
-            { id: "10", name: "Capivara", top: 3, jg: 5, mid: 2, adc: 2, sup: 4 },
-            { id: "11", name: "Liloca", top: 2, jg: 1, mid: 2, adc: 1, sup: 2 },
-            { id: "12", name: "Antonio", top: 3, jg: 4, mid: 2, adc: 4, sup: 4 },
-            { id: "13", name: "Cadu", top: 5, jg: 5, mid: 5, adc: 5, sup: 5 },
-            { id: "14", name: "Dods", top: 3, jg: 2, mid: 4, adc: 2, sup: 3 },
-            { id: "15", name: "Emano", top: 2, jg: 4, mid: 3, adc: 2, sup: 2 },
-            { id: "16", name: "Pedro", top: 3, jg: 2, mid: 2, adc: 3, sup: 3 },
-            { id: "17", name: "Well", top: 2, jg: 2, mid: 5, adc: 2, sup: 3 },
-            { id: "18", name: "Gordeta", top: 3, jg: 3, mid: 2, adc: 2, sup: 2 }
-        ];
+    // ========== FUNÇÃO DE AUTENTICAÇÃO ========================
+    function showPasswordModal(action, data = null) {
+        pendingAction = action;
+        pendingData = data;
+        
+        let modal = document.getElementById("password-modal");
+        if (!modal) {
+            modal = document.createElement("div");
+            modal.id = "password-modal";
+            modal.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0,0,0,0.9);
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                z-index: 10000;
+            `;
+            modal.innerHTML = `
+                <div style="background: #333; padding: 30px; border-radius: 10px; min-width: 300px; text-align: center;">
+                    <h3 style="color: #D4AF37; margin-bottom: 20px;">Acesso Restrito</h3>
+                    <p style="margin-bottom: 15px;">Digite a senha para ${action === 'edit' ? 'editar' : 'excluir'} o jogador:</p>
+                    <input type="password" id="password-input" placeholder="Senha" style="width: 100%; padding: 10px; margin-bottom: 20px; border-radius: 5px; border: none;">
+                    <div style="display: flex; gap: 10px; justify-content: center;">
+                        <button id="password-confirm" class="cta-button">Confirmar</button>
+                        <button id="password-cancel" class="secondary-button">Cancelar</button>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+        }
+        modal.style.display = "flex";
+        
+        const input = document.getElementById("password-input");
+        input.value = "";
+        input.focus();
+        
+        document.getElementById("password-confirm").onclick = () => {
+            const password = input.value;
+            if (password === ADMIN_PASSWORD) {
+                isAuthenticated = true;
+                localStorage.setItem(STORAGE_KEY, "true");
+                modal.style.display = "none";
+                if (pendingAction === 'edit' && pendingData) {
+                    openEditPlayerForm(pendingData);
+                } else if (pendingAction === 'delete' && pendingData) {
+                    confirmDeletePlayer(pendingData);
+                } else if (pendingAction === 'import') {
+                    executeExcelImport(pendingData);
+                }
+            } else {
+                alert("Senha incorreta!");
+                input.value = "";
+                input.focus();
+            }
+        };
+        
+        document.getElementById("password-cancel").onclick = () => {
+            modal.style.display = "none";
+            pendingAction = null;
+            pendingData = null;
+        };
+    }
+    
+    function checkAuth(action, data = null) {
+        if (isAuthenticated) {
+            return true;
+        }
+        showPasswordModal(action, data);
+        return false;
+    }
+
+    // ========== API FUNCTIONS =================================
+    
+    async function fetchPlayersFromAPI() {
+        try {
+            const response = await fetch(`${API_URL}/jogador`);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            return await response.json();
+        } catch (error) {
+            console.error("Erro ao buscar jogadores:", error);
+            return [];
+        }
+    }
+    
+    async function savePlayerToAPI(player) {
+        try {
+            let url = `${API_URL}/jogador`;
+            let method = "POST";
+            
+            if (player._id) {
+                url = `${API_URL}/jogador/${player._id}`;
+                method = "PUT";
+            }
+            
+            const response = await fetch(url, {
+                method: method,
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    name: player.name,
+                    top: player.top,
+                    jg: player.jg,
+                    mid: player.mid,
+                    adc: player.adc,
+                    sup: player.sup
+                })
+            });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            return await response.json();
+        } catch (error) {
+            console.error("Erro ao salvar jogador:", error);
+            return null;
+        }
+    }
+    
+    async function deletePlayerFromAPI(id) {
+        try {
+            const response = await fetch(`${API_URL}/jogador/${id}`, { method: "DELETE" });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            return true;
+        } catch (error) {
+            console.error("Erro ao deletar jogador:", error);
+            return false;
+        }
+    }
+    
+    async function loadPlayersFromAPI() {
+        isLoading = true;
+        showLoading("Carregando jogadores...");
+        
+        try {
+            const players = await fetchPlayersFromAPI();
+            if (players && players.length > 0) {
+                registeredPlayers = players.map(p => ({
+                    ...p,
+                    id: p._id
+                }));
+            } else {
+                registeredPlayers = [];
+            }
+            
+            registeredPlayers = sortPlayersAlphabetically(registeredPlayers);
+            renderPlayersList();
+            renderAvailablePlayers();
+            renderSelectedPlayers();
+        } catch (error) {
+            console.error("Erro ao carregar jogadores:", error);
+            alert("Erro ao carregar dados do banco.");
+        } finally {
+            hideLoading();
+            isLoading = false;
+        }
+    }
+    
+    function showLoading(message) {
+        let loadingDiv = document.getElementById("loading-overlay");
+        if (!loadingDiv) {
+            loadingDiv = document.createElement("div");
+            loadingDiv.id = "loading-overlay";
+            loadingDiv.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0,0,0,0.8);
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                z-index: 9999;
+                color: white;
+                font-size: 1.2rem;
+            `;
+            loadingDiv.innerHTML = `<div style="background:#333; padding:20px; border-radius:10px;">${message}</div>`;
+            document.body.appendChild(loadingDiv);
+        } else {
+            loadingDiv.querySelector("div").innerHTML = message;
+            loadingDiv.style.display = "flex";
+        }
+    }
+    
+    function hideLoading() {
+        const loadingDiv = document.getElementById("loading-overlay");
+        if (loadingDiv) {
+            loadingDiv.style.display = "none";
+        }
     }
 
     // ========== FUNÇÕES DE ORDENAÇÃO ==========================
@@ -117,7 +286,7 @@ document.addEventListener("DOMContentLoaded", function () {
     navHome.addEventListener("click", () => showSection("home"));
     navJogadores.addEventListener("click", () => showSection("jogadores"));
     navSorteador.addEventListener("click", () => showSection("sorteador"));
-    shuffleButton.addEventListener("click", () => handleShuffle(true));
+    shuffleButton.addEventListener("click", () => handleShuffle());
     newShuffleButton.addEventListener("click", resetShuffle);
     copyTeamsButton.addEventListener("click", () => copyTeamsToClipboard(copyTeamsButton));
     blueTeamGrid.addEventListener("click", handlePlayerClick);
@@ -128,10 +297,12 @@ document.addEventListener("DOMContentLoaded", function () {
     btnCancelForm.addEventListener("click", closeForm);
     playerSearch.addEventListener("input", renderPlayersList);
     sorteadorSearch.addEventListener("input", renderAvailablePlayers);
-    excelImport.addEventListener("change", handleExcelImport);
+    excelImport.addEventListener("change", (e) => {
+        if (checkAuth('import', e)) {
+            handleExcelImport(e);
+        }
+    });
     btnExportExcel.addEventListener("click", handleExcelExport);
-    
-    if (btnSyncGoogle) btnSyncGoogle.addEventListener("click", () => syncWithGoogleSheets(true));
     
     if (addAllBtn) addAllBtn.addEventListener("click", addAllToSorteio);
     if (removeAllBtn) removeAllBtn.addEventListener("click", removeAllFromSorteio);
@@ -147,268 +318,7 @@ document.addEventListener("DOMContentLoaded", function () {
         r.addEventListener("change", function () { teamOption = this.value; }));
 
     initStarRatings();
-    loadInitialData();
-    
-    // ==========================================================
-    //  FUNÇÕES DE SINCRONIZACAO COM GOOGLE SHEETS
-    // ==========================================================
-    
-    async function fetchGoogleSheetCSV() {
-        // Usar o proxy CORS para contornar o erro 400
-        const proxyUrl = CORS_PROXY + encodeURIComponent(GOOGLE_SHEETS_CSV_URL);
-        
-        console.log("Tentando sincronizar via proxy:", proxyUrl);
-        
-        const response = await fetch(proxyUrl);
-        
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-        
-        const text = await response.text();
-        
-        // Verificar se o retorno é um CSV válido
-        if (!text || text.trim().length === 0) {
-            throw new Error("Resposta vazia do servidor");
-        }
-        
-        if (!text.includes(',') && !text.includes('Nome')) {
-            throw new Error("Resposta não parece ser um CSV válido");
-        }
-        
-        return text;
-    }
-    
-    function parseGoogleSheetCSV(csvText) {
-        const rows = [];
-        const lines = csvText.split(/\r?\n/);
-        
-        for (const line of lines) {
-            if (line.trim() === "") continue;
-            
-            let cleanLine = line.trim();
-            const row = [];
-            let current = "";
-            let inQuotes = false;
-            
-            for (let i = 0; i < cleanLine.length; i++) {
-                const char = cleanLine[i];
-                
-                if (char === '"') {
-                    inQuotes = !inQuotes;
-                } else if (char === ',' && !inQuotes) {
-                    row.push(current.trim());
-                    current = "";
-                } else {
-                    current += char;
-                }
-            }
-            row.push(current.trim());
-            
-            const cleanRow = row.map(cell => {
-                let cleaned = cell;
-                if (cleaned.startsWith('"') && cleaned.endsWith('"')) {
-                    cleaned = cleaned.slice(1, -1);
-                }
-                cleaned = cleaned.replace(/[^\x20-\x7E\u00C0-\u00FF]/g, '');
-                return cleaned;
-            });
-            
-            if (cleanRow.length > 0 && cleanRow.some(cell => cell.length > 0)) {
-                rows.push(cleanRow);
-            }
-        }
-        
-        return rows;
-    }
-    
-     async function syncWithGoogleSheets(showAlert = false) {
-        if (isSyncing) {
-            if (showAlert) alert("Sincronização em andamento, aguarde...");
-            return;
-        }
-        isSyncing = true;
-        
-        const originalText = btnSyncGoogle ? btnSyncGoogle.textContent : null;
-        if (btnSyncGoogle && showAlert) {
-            btnSyncGoogle.textContent = "?? Sincronizando...";
-            btnSyncGoogle.disabled = true;
-        }
-        
-        try {
-            const csvText = await fetchGoogleSheetCSV();
-            
-            // Parse do CSV (suporta linhas com aspas)
-            const rows = [];
-            const lines = csvText.split(/\r?\n/);
-            
-            for (const line of lines) {
-                if (line.trim() === "") continue;
-                
-                // Remover aspas do início e fim da linha se existirem
-                let cleanLine = line.trim();
-                if (cleanLine.startsWith('"') && cleanLine.endsWith('"')) {
-                    cleanLine = cleanLine.slice(1, -1);
-                }
-                
-                // Separar por vírgula, respeitando aspas
-                const row = [];
-                let current = "";
-                let inQuotes = false;
-                
-                for (let i = 0; i < cleanLine.length; i++) {
-                    const char = cleanLine[i];
-                    
-                    if (char === '"') {
-                        inQuotes = !inQuotes;
-                    } else if (char === ',' && !inQuotes) {
-                        row.push(current.trim());
-                        current = "";
-                    } else {
-                        current += char;
-                    }
-                }
-                row.push(current.trim());
-                
-                // Limpar aspas extras de cada célula
-                const cleanRow = row.map(cell => {
-                    let cleaned = cell;
-                    if (cleaned.startsWith('"') && cleaned.endsWith('"')) {
-                        cleaned = cleaned.slice(1, -1);
-                    }
-                    return cleaned;
-                });
-                
-                if (cleanRow.length > 0 && cleanRow.some(cell => cell.length > 0)) {
-                    rows.push(cleanRow);
-                }
-            }
-            
-            if (rows.length < 2) {
-                throw new Error("Planilha vazia ou formato inválido");
-            }
-            
-            const headers = rows[0].map(h => h.toLowerCase().trim());
-            
-            // Encontrar índices (flexível)
-            const nameIndex = headers.findIndex(h => 
-                h === 'nome' || 
-                h === 'name' || 
-                h.includes('nome') ||
-                h.includes('name')
-            );
-            
-            const topIndex = headers.findIndex(h => h.includes('top'));
-            const jgIndex = headers.findIndex(h => h.includes('jungle') || h === 'jg');
-            const midIndex = headers.findIndex(h => h.includes('mid'));
-            const adcIndex = headers.findIndex(h => h.includes('adc'));
-            const supIndex = headers.findIndex(h => h.includes('support') || h === 'sup');
-            
-            if (nameIndex === -1) {
-                throw new Error(`Coluna 'Nome' não encontrada. Headers: ${headers.join(', ')}`);
-            }
-            
-            let added = 0, updated = 0;
-            const newPlayers = [];
-            
-            for (let i = 1; i < rows.length; i++) {
-                const row = rows[i];
-                if (!row || row.length === 0) continue;
-                
-                const name = row[nameIndex]?.trim();
-                if (!name) continue;
-                
-                const getScore = (index) => {
-                    if (index === -1 || index >= row.length) return 3;
-                    const val = parseInt(row[index]);
-                    return (isNaN(val) || val < 1 || val > 5) ? 3 : val;
-                };
-                
-                const existingPlayer = registeredPlayers.find(p => 
-                    p.name.toLowerCase() === name.toLowerCase()
-                );
-                
-                if (existingPlayer) {
-                    existingPlayer.top = getScore(topIndex);
-                    existingPlayer.jg = getScore(jgIndex);
-                    existingPlayer.mid = getScore(midIndex);
-                    existingPlayer.adc = getScore(adcIndex);
-                    existingPlayer.sup = getScore(supIndex);
-                    updated++;
-                    newPlayers.push(existingPlayer);
-                } else {
-                    newPlayers.push({
-                        id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
-                        name: name,
-                        top: getScore(topIndex),
-                        jg: getScore(jgIndex),
-                        mid: getScore(midIndex),
-                        adc: getScore(adcIndex),
-                        sup: getScore(supIndex)
-                    });
-                    added++;
-                }
-            }
-            
-            if (newPlayers.length > 0) {
-                registeredPlayers = sortPlayersAlphabetically(newPlayers);
-                savePlayers();
-                renderPlayersList();
-                renderAvailablePlayers();
-                renderSelectedPlayers();
-                
-                if (showAlert) {
-                    alert(`Sincronização concluída!\n${added} jogadores adicionados, ${updated} atualizados.`);
-                } else {
-                    console.log(`Sincronização automática: +${added} / ~${updated}`);
-                }
-            } else if (showAlert) {
-                alert("Nenhuma alteração encontrada na planilha.");
-            }
-            
-        } catch (error) {
-            console.error("Erro na sincronização:", error);
-            if (showAlert) {
-                alert(`? Erro ao sincronizar:\n${error.message}\n\nTente novamente mais tarde.`);
-            }
-        } finally {
-            isSyncing = false;
-            if (btnSyncGoogle && showAlert) {
-                btnSyncGoogle.textContent = originalText;
-                btnSyncGoogle.disabled = false;
-            }
-        }
-    }
-    
-    // ==========================================================
-    //  CARREGAMENTO INICIAL
-    // ==========================================================
-    async function loadInitialData() {
-        // Carregar dados salvos localmente primeiro
-        const saved = localStorage.getItem("megaxodia_players");
-        if (saved && saved !== "[]") {
-            registeredPlayers = sortPlayersAlphabetically(JSON.parse(saved));
-            renderPlayersList();
-            renderAvailablePlayers();
-            renderSelectedPlayers();
-            showSection("home");
-        } else {
-            // Usar os dados padrão atualizados
-            registeredPlayers = sortPlayersAlphabetically(getDefaultPlayers());
-            savePlayers();
-            renderPlayersList();
-            renderAvailablePlayers();
-            renderSelectedPlayers();
-            showSection("home");
-        }
-        
-        // Tentar sincronizar com Google Sheets em segundo plano
-        setTimeout(() => syncWithGoogleSheets(false), 1000);
-    }
-    
-    function savePlayers() {
-        localStorage.setItem("megaxodia_players", JSON.stringify(registeredPlayers));
-    }
+    loadPlayersFromAPI();
 
     // ==========================================================
     //  NAVIGATION
@@ -445,7 +355,6 @@ document.addEventListener("DOMContentLoaded", function () {
             for (let i = 1; i <= 5; i++) {
                 const star = document.createElement("span");
                 star.className = "star";
-                star.setAttribute("data-star", i);
                 star.innerHTML = "&#9733;";
                 star.dataset.value = i;
                 star.addEventListener("click", () => {
@@ -473,20 +382,15 @@ document.addEventListener("DOMContentLoaded", function () {
             if (starValue <= value) {
                 star.classList.add("active");
                 star.style.color = "#D4AF37";
-                star.style.textShadow = "0 0 2px rgba(212, 175, 55, 0.5)";
             } else {
                 star.classList.remove("active");
                 star.style.color = "#555";
-                star.style.textShadow = "none";
             }
             if (hover && starValue <= value) {
                 star.classList.add("hover");
                 star.style.color = "#f1c232";
             } else {
                 star.classList.remove("hover");
-                if (starValue <= value) {
-                    star.style.color = "#D4AF37";
-                }
             }
         });
     }
@@ -511,6 +415,8 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     function openEditPlayerForm(id) {
+        if (!checkAuth('edit', id)) return;
+        
         const p = registeredPlayers.find(x => x.id === id);
         if (!p) return;
         editPlayerId.value = id;
@@ -526,7 +432,7 @@ document.addEventListener("DOMContentLoaded", function () {
         playerFormContainer.classList.add("hidden");
     }
 
-    function savePlayer() {
+    async function savePlayer() {
         const name = formPlayerName.value.trim();
         if (!name) { alert("Por favor insira o nome do jogador."); return; }
 
@@ -534,28 +440,44 @@ document.addEventListener("DOMContentLoaded", function () {
         ROLES.forEach(r => { scores[r] = parseInt(document.getElementById("score-" + r).value) || 3; });
 
         const id = editPlayerId.value;
+        let playerData = { name, ...scores };
+        
         if (id) {
-            const idx = registeredPlayers.findIndex(x => x.id === id);
-            if (idx >= 0) { registeredPlayers[idx] = { id, name, ...scores }; }
-        } else {
-            registeredPlayers.push({ id: Date.now().toString(), name, ...scores });
+            const existing = registeredPlayers.find(p => p.id === id);
+            if (existing && existing._id) playerData._id = existing._id;
         }
         
-        registeredPlayers = sortPlayersAlphabetically(registeredPlayers);
-        savePlayers();
-        closeForm();
-        renderPlayersList();
-        renderAvailablePlayers();
+        showLoading("Salvando jogador...");
+        const saved = await savePlayerToAPI(playerData);
+        hideLoading();
+        
+        if (saved) {
+            await loadPlayersFromAPI();
+            closeForm();
+        } else {
+            alert("Erro ao salvar jogador. Tente novamente.");
+        }
+    }
+
+    async function confirmDeletePlayer(id) {
+        if (!checkAuth('delete', id)) return;
+        
+        if (!confirm("Remover este jogador?")) return;
+        
+        showLoading("Removendo jogador...");
+        const success = await deletePlayerFromAPI(id);
+        hideLoading();
+        
+        if (success) {
+            selectedForSorteio = selectedForSorteio.filter(x => x !== id);
+            await loadPlayersFromAPI();
+        } else {
+            alert("Erro ao remover jogador. Tente novamente.");
+        }
     }
 
     function deletePlayer(id) {
-        if (!confirm("Remover este jogador?")) return;
-        registeredPlayers = registeredPlayers.filter(x => x.id !== id);
-        selectedForSorteio = selectedForSorteio.filter(x => x !== id);
-        savePlayers();
-        renderPlayersList();
-        renderAvailablePlayers();
-        renderSelectedPlayers();
+        confirmDeletePlayer(id);
     }
 
     // ==========================================================
@@ -732,7 +654,7 @@ document.addEventListener("DOMContentLoaded", function () {
     window._deletePlayer = (id) => deletePlayer(id);
 
     // ==========================================================
-    //  BALANCEAMENTO POR ROTAS (VERSÃO SIMPLIFICADA E FUNCIONAL)
+    //  BALANCEAMENTO POR ROTAS
     // ==========================================================
     
     function generateShuffleHash(blueTeam, redTeam) {
@@ -903,7 +825,6 @@ document.addEventListener("DOMContentLoaded", function () {
         if (avoidRepeat && lastShuffleHash && attempt < 10) {
             const currentHash = generateShuffleHash(finalBlue, finalRed);
             if (currentHash === lastShuffleHash) {
-                console.log("Sorteio repetido, tentando novamente...");
                 return performBalancedShuffle(playerList, avoidRepeat, attempt + 1);
             }
             lastShuffleHash = currentHash;
@@ -970,7 +891,6 @@ document.addEventListener("DOMContentLoaded", function () {
                 }
             }
         }
-        
         return finalTeam;
     }
     
@@ -989,20 +909,83 @@ document.addEventListener("DOMContentLoaded", function () {
         if (blueLabel) blueLabel.textContent = blueTotal + " pts";
         if (redLabel) redLabel.textContent = redTotal + " pts";
         
-        let detailsHtml = '<div style="margin-top: 15px; font-size: 0.8rem;"><strong>Confrontos por Rota:</strong><br>';
+        let detailsHtml = '<div style="margin-top: 20px;"><h4 style="color: #D4AF37; margin-bottom: 15px; text-align: center;">Confrontos por Rota</h4>';
+        detailsHtml += '<div style="display: flex; flex-direction: column; gap: 12px;">';
+        
         for (const role of POSITIONS) {
+            const bluePlayer = teams.blue.find(p => p.position === role);
+            const redPlayer = teams.red.find(p => p.position === role);
+            
+            const blueName = bluePlayer ? bluePlayer.name : "Vazio";
+            const redName = redPlayer ? redPlayer.name : "Vazio";
             const blueScore = blueScores[role] || 0;
             const redScore = redScores[role] || 0;
             const diff = Math.abs(blueScore - redScore);
-            const diffClass = diff <= 1 ? 'good' : (diff <= 2 ? 'warning' : 'bad');
-            detailsHtml += `<span style="display: inline-block; margin-right: 15px;">
-                ${role}: ${blueScore} vs ${redScore} 
-                <span style="color: ${diffClass === 'good' ? '#4CAF50' : (diffClass === 'warning' ? '#FFC107' : '#F44336')}">
-                    (dif: ${diff})
-                </span>
-            </span><br>`;
+            
+            let statusColor = '#4CAF50';
+            let statusText = 'equilibrado';
+            if (diff >= 3) {
+                statusColor = '#F44336';
+                statusText = 'desbalanceado';
+            } else if (diff >= 2) {
+                statusColor = '#FFC107';
+                statusText = 'atenção';
+            }
+            
+            const bluePercent = (blueScore / 5) * 100;
+            const redPercent = (redScore / 5) * 100;
+            
+            const scoreWidth = '35px';
+            const vsWidth = '40px';
+            const gapWidth = '12px';
+            
+            detailsHtml += `
+                <div style="background: #2a2a2a; border-radius: 10px; padding: 12px 15px;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                        <span style="font-weight: bold; color: #D4AF37; font-size: 1rem;">${role}</span>
+                        <span style="color: ${statusColor}; font-size: 0.75rem;">${statusText}</span>
+                    </div>
+                    
+                    <div style="display: flex; align-items: center; margin-bottom: 8px;">
+                        <div style="width: ${scoreWidth}; text-align: center;"></div>
+                        <div style="flex: 1; margin-left: ${gapWidth};">
+                            <div style="text-align: right; padding-right: 8px;">
+                                <span style="color: #1E90FF; font-weight: 500;">${escapeHtml(blueName)}</span>
+                            </div>
+                        </div>
+                        <div style="width: ${vsWidth}; text-align: center; color: #888; font-weight: bold;">vs</div>
+                        <div style="flex: 1; margin-right: ${gapWidth};">
+                            <div style="text-align: left; padding-left: 8px;">
+                                <span style="color: #FF4500; font-weight: 500;">${escapeHtml(redName)}</span>
+                            </div>
+                        </div>
+                        <div style="width: ${scoreWidth}; text-align: center;"></div>
+                        <div style="width: 110px;"></div>
+                    </div>
+                    
+                    <div style="display: flex; align-items: center;">
+                        <div style="width: ${scoreWidth}; text-align: center; font-weight: bold; color: #1E90FF;">${blueScore}</div>
+                        <div style="flex: 1; margin-left: ${gapWidth};">
+                            <div style="height: 12px; background: #444; border-radius: 6px; overflow: hidden;">
+                                <div style="width: ${bluePercent}%; height: 100%; background: #1E90FF; border-radius: 6px;"></div>
+                            </div>
+                        </div>
+                        <div style="width: ${vsWidth}; text-align: center; color: #666; font-weight: bold;">VS</div>
+                        <div style="flex: 1; margin-right: ${gapWidth};">
+                            <div style="height: 12px; background: #444; border-radius: 6px; overflow: hidden;">
+                                <div style="width: ${redPercent}%; height: 100%; background: #FF4500; border-radius: 6px;"></div>
+                            </div>
+                        </div>
+                        <div style="width: ${scoreWidth}; text-align: center; font-weight: bold; color: #FF4500;">${redScore}</div>
+                        <div style="width: 110px; text-align: center; background: #1a1a1a; border-radius: 8px; padding: 4px 8px; margin-left: 8px;">
+                            <span style="font-size: 0.65rem; color: #aaa;">dif</span>
+                            <span style="font-weight: bold; color: ${statusColor};">${diff}</span>
+                        </div>
+                    </div>
+                </div>
+            `;
         }
-        detailsHtml += '</div>';
+        detailsHtml += '</div></div>';
         
         let detailsDiv = document.getElementById("role-balance-details");
         if (!detailsDiv) {
@@ -1053,7 +1036,7 @@ document.addEventListener("DOMContentLoaded", function () {
         finalizeShuffle();
     }
     
-    function handleShuffle(allowRepeat = true) {
+    function handleShuffle() {
         const playerObjs = selectedForSorteio
             .map(id => registeredPlayers.find(p => p.id === id))
             .filter(Boolean);
@@ -1069,9 +1052,9 @@ document.addEventListener("DOMContentLoaded", function () {
 
         const useBalance = balanceToggle && balanceToggle.checked;
         if (useBalance && playerObjs.length === 10) {
-            performBalancedShuffle(playerObjs, !allowRepeat);
+            performBalancedShuffle(playerObjs, true);
         } else {
-            performSimpleShuffle(playerObjs, !allowRepeat);
+            performSimpleShuffle(playerObjs, true);
         }
     }
 
@@ -1089,31 +1072,13 @@ document.addEventListener("DOMContentLoaded", function () {
         if (redLabel) redLabel.textContent = redScore + " pts";
         
         const detailsDiv = document.getElementById("role-balance-details");
-        if (detailsDiv) detailsDiv.remove();
+        if (detailsDiv) detailsDiv.innerHTML = "";
     }
 
     function finalizeShuffle() {
-        if (gradualRevealTimer) { clearInterval(gradualRevealTimer); gradualRevealTimer = null; }
-        gradualRevealCount = 0;
         revealedOnClick.clear();
         displayResults();
         updateInitialVisualState();
-
-        if (revealMode === "gradual") {
-            const total = teams.blue.length + teams.red.length;
-            if (total > 0) {
-                gradualRevealTimer = setInterval(() => {
-                    if (gradualRevealCount < total) {
-                        gradualRevealCount++;
-                        updateRevealedPlayers();
-                        updateMapPositions();
-                    } else {
-                        clearInterval(gradualRevealTimer);
-                        gradualRevealTimer = null;
-                    }
-                }, 1800);
-            }
-        }
     }
 
     // ==========================================================
@@ -1206,23 +1171,13 @@ document.addEventListener("DOMContentLoaded", function () {
                 card.classList.remove("hidden");
                 card.classList.add(teamColor);
                 nameEl.textContent = teams[teamColor][index].name;
-            } else if (revealMode === "gradual") {
-                if (isPlayerRevealed(teamColor, index)) {
-                    card.classList.remove("hidden");
-                    card.classList.add(teamColor);
-                    nameEl.textContent = teams[teamColor][index].name;
-                } else {
-                    card.classList.add("hidden");
-                    card.classList.remove("blue", "red");
-                    nameEl.textContent = "";
-                }
             } else {
                 card.classList.remove("hidden");
                 card.classList.add(teamColor);
                 if (revealedOnClick.has(`${teamColor}-${index}`)) {
                     nameEl.textContent = teams[teamColor][index].name;
                 } else {
-                    nameEl.textContent = "";
+                    nameEl.textContent = "???";
                 }
             }
         });
@@ -1234,27 +1189,17 @@ document.addEventListener("DOMContentLoaded", function () {
             const nameEl = pos.querySelector(".player-name");
             if (!nameEl || !teams[teamColor][index]) return;
 
-            if (revealMode === "click") {
+            if (revealMode === "all") {
+                pos.classList.remove("hidden");
+                pos.classList.add(`${teamColor}-revealed`);
+                nameEl.textContent = teams[teamColor][index].name;
+            } else {
                 pos.classList.remove("hidden");
                 pos.classList.add(`${teamColor}-revealed`);
                 if (revealedOnClick.has(`${teamColor}-${index}`)) {
                     nameEl.textContent = teams[teamColor][index].name;
                 } else {
-                    nameEl.textContent = "";
-                }
-            } else if (revealMode === "all") {
-                pos.classList.remove("hidden");
-                pos.classList.add(`${teamColor}-revealed`);
-                nameEl.textContent = teams[teamColor][index].name;
-            } else {
-                if (isPlayerRevealed(teamColor, index)) {
-                    pos.classList.remove("hidden");
-                    pos.classList.add(`${teamColor}-revealed`);
-                    nameEl.textContent = teams[teamColor][index].name;
-                } else {
-                    pos.classList.add("hidden");
-                    pos.classList.remove("blue-revealed", "red-revealed");
-                    nameEl.textContent = "";
+                    nameEl.textContent = "???";
                 }
             }
         });
@@ -1269,10 +1214,13 @@ document.addEventListener("DOMContentLoaded", function () {
 
     function handlePlayerClick(event) {
         if (revealMode !== "click") return;
+        
         const target = event.target.closest(".player-card, .map-position");
         if (!target) return;
+        
         const team = target.dataset.team;
         const index = parseInt(target.dataset.index);
+        
         if (team && !isNaN(index) && !revealedOnClick.has(`${team}-${index}`)) {
             revealPlayer(team, index);
         }
@@ -1280,82 +1228,46 @@ document.addEventListener("DOMContentLoaded", function () {
 
     function revealPlayer(team, index) {
         revealedOnClick.add(`${team}-${index}`);
+        
         const card = document.querySelector(`.player-card[data-team="${team}"][data-index="${index}"]`);
-        if (card) card.querySelector(".player-name").textContent = teams[team][index].name;
-        const mapPos = document.querySelector(`.map-position[data-team="${team}"][data-index="${index}"]`);
-        if (mapPos) mapPos.querySelector(".player-name").textContent = teams[team][index].name;
-    }
-
-    function updateRevealedPlayers() {
-        if (revealMode !== "gradual") return;
-        document.querySelectorAll(".player-card").forEach(card => {
-            const team = card.dataset.team;
-            const index = parseInt(card.dataset.index);
+        if (card) {
             const nameEl = card.querySelector(".player-name");
-            if (!nameEl || !teams[team] || !teams[team][index]) return;
-            if (isPlayerRevealed(team, index)) {
-                card.classList.remove("hidden");
-                card.classList.add(team);
-                nameEl.textContent = teams[team][index].name;
-            } else {
-                if (!card.classList.contains(team)) {
-                    card.classList.add("hidden");
-                    card.classList.remove("blue", "red");
-                    nameEl.textContent = "";
-                }
-            }
-        });
-    }
-
-    function updateMapPositions() {
-        if (revealMode !== "gradual") return;
-        document.querySelectorAll(".map-position").forEach(pos => {
-            const team = pos.dataset.team;
-            const index = parseInt(pos.dataset.index);
-            const nameEl = pos.querySelector(".player-name");
-            if (!nameEl || !teams[team] || !teams[team][index]) return;
-            pos.style.display = teams[team] && teams[team].length > 0 ? "flex" : "none";
-            if (isPlayerRevealed(team, index)) {
-                pos.classList.remove("hidden");
-                pos.classList.add(`${team}-revealed`);
-                nameEl.textContent = teams[team][index].name;
-            } else {
-                if (!pos.classList.contains(`${team}-revealed`)) {
-                    pos.classList.add("hidden");
-                    pos.classList.remove("blue-revealed", "red-revealed");
-                    nameEl.textContent = "";
-                }
-            }
-        });
-    }
-
-    function isPlayerRevealed(team, index) {
-        if (revealMode === "all") return true;
-        if (revealMode === "click") return revealedOnClick.has(`${team}-${index}`);
-        if (revealMode === "gradual") {
-            const playerIndex = team === "blue" ? index : (teams.blue ? teams.blue.length : 0) + index;
-            return playerIndex < gradualRevealCount;
+            if (nameEl) nameEl.textContent = teams[team][index].name;
         }
-        return false;
+        
+        const mapPos = document.querySelector(`.map-position[data-team="${team}"][data-index="${index}"]`);
+        if (mapPos) {
+            const nameEl = mapPos.querySelector(".player-name");
+            if (nameEl) nameEl.textContent = teams[team][index].name;
+        }
     }
 
     function resetShuffle() {
         resultsSection.classList.add("hidden");
         inputSection.classList.remove("hidden");
-        if (gradualRevealTimer) { clearInterval(gradualRevealTimer); gradualRevealTimer = null; }
-        gradualRevealCount = 0;
+        
         revealedOnClick.clear();
         if (balanceInfo) balanceInfo.classList.add("hidden");
+        
         document.querySelectorAll(".player-card .player-name").forEach(p => p.textContent = "");
-        document.querySelectorAll(".player-card").forEach(p => { p.classList.add("hidden"); p.classList.remove("blue", "red"); });
+        document.querySelectorAll(".player-card").forEach(p => { 
+            p.classList.add("hidden"); 
+            p.classList.remove("blue", "red"); 
+        });
+        
         document.querySelectorAll(".map-position .player-name").forEach(p => p.textContent = "");
-        document.querySelectorAll(".map-position").forEach(p => { p.classList.add("hidden"); p.classList.remove("blue-revealed", "red-revealed"); });
+        document.querySelectorAll(".map-position").forEach(p => { 
+            p.classList.add("hidden"); 
+            p.classList.remove("blue-revealed", "red-revealed"); 
+        });
+        
         if (blueButtonContainer) blueButtonContainer.innerHTML = "";
         if (redButtonContainer) redButtonContainer.innerHTML = "";
         if (copyTeamsButton) {
             copyTeamsButton.textContent = "Copiar Times";
             copyTeamsButton.disabled = false;
         }
+        
         lastShuffleHash = null;
     }
 
@@ -1400,13 +1312,14 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     // ==========================================================
-    //  EXCEL IMPORT/EXPORT
+    //  EXCEL IMPORT/EXPORT (Com senha)
     // ==========================================================
-    function handleExcelImport(event) {
+    async function executeExcelImport(event) {
         const file = event.target.files[0];
         if (!file) return;
+        
         const reader = new FileReader();
-        reader.onload = function (e) {
+        reader.onload = async function (e) {
             try {
                 const data = new Uint8Array(e.target.result);
                 const wb = XLSX.read(data, { type: "array" });
@@ -1414,10 +1327,11 @@ document.addEventListener("DOMContentLoaded", function () {
                 const rows = XLSX.utils.sheet_to_json(ws, { defval: "" });
 
                 let added = 0, updated = 0, skipped = 0;
+                showLoading("Importando jogadores...");
 
-                rows.forEach(row => {
+                for (const row of rows) {
                     const name = (row["Nome"] || row["name"] || "").toString().trim();
-                    if (!name) { skipped++; return; }
+                    if (!name) { skipped++; continue; }
 
                     const getScore = (...keys) => {
                         for (const k of keys) {
@@ -1429,11 +1343,12 @@ document.addEventListener("DOMContentLoaded", function () {
                         return 3;
                     };
 
-                    const existingIndex = registeredPlayers.findIndex(p =>
+                    const existingPlayer = registeredPlayers.find(p =>
                         p.name.toLowerCase() === name.toLowerCase()
                     );
 
                     const playerData = {
+                        name: name,
                         top: getScore("Top (1-5)", "Top", "top"),
                         jg: getScore("Jungle (1-5)", "Jungle", "jg", "Jg"),
                         mid: getScore("Mid (1-5)", "Mid", "mid"),
@@ -1441,39 +1356,35 @@ document.addEventListener("DOMContentLoaded", function () {
                         sup: getScore("Support (1-5)", "Support", "sup", "Sup"),
                     };
 
-                    if (existingIndex >= 0) {
-                        const existingPlayer = registeredPlayers[existingIndex];
-                        registeredPlayers[existingIndex] = {
-                            id: existingPlayer.id,
-                            name: name,
-                            ...playerData
-                        };
+                    if (existingPlayer) {
+                        playerData._id = existingPlayer._id;
+                        await savePlayerToAPI(playerData);
                         updated++;
                     } else {
-                        registeredPlayers.push({
-                            id: Date.now().toString() + Math.random().toString(36).substr(2, 5),
-                            name: name,
-                            ...playerData
-                        });
+                        await savePlayerToAPI(playerData);
                         added++;
                     }
-                });
+                }
 
-                registeredPlayers = sortPlayersAlphabetically(registeredPlayers);
-                savePlayers();
-                renderPlayersList();
-                renderAvailablePlayers();
-                renderSelectedPlayers();
-                alert(`Importacao concluida!\n${added} jogadores adicionados, ${updated} atualizados, ${skipped} ignorados.`);
+                await loadPlayersFromAPI();
+                hideLoading();
+                alert(`Importacao concluida!\n${added} adicionados, ${updated} atualizados, ${skipped} ignorados.`);
+                
             } catch (err) {
+                hideLoading();
                 alert("Erro ao importar Excel: " + err.message);
             }
         };
         reader.readAsArrayBuffer(file);
         event.target.value = "";
     }
+    
+    async function handleExcelImport(event) {
+        if (!checkAuth('import', event)) return;
+        executeExcelImport(event);
+    }
 
-    function handleExcelExport() {
+    async function handleExcelExport() {
         if (registeredPlayers.length === 0) { alert("Nenhum jogador para exportar."); return; }
 
         const rows = registeredPlayers.map(p => ({
