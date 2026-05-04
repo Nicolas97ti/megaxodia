@@ -1,20 +1,14 @@
 // ============================================================
-//  MEGAXODIA - script.js (versao com MongoDB)
-//  Dados salvos no banco de dados
+//  MEGAXODIA - script.js (versao com localStorage)
+//  Dados salvos no navegador - funciona no GitHub Pages
 // ============================================================
 
 document.addEventListener("DOMContentLoaded", function () {
 
-    // ========== CONFIGURAÇÕES ================================
-    const API_URL = (() => {
-        if (window.location.hostname === 'nicolas97ti.github.io') {
-            return 'https://megaxodia-api.onrender.com';
-        }
-        return 'http://localhost:3000';
-    })();
-    
+    // ========== CONFIGURAÇ?ES ================================
     const ADMIN_PASSWORD = "mgxeditarpontos";
     const STORAGE_KEY = "megaxodia_auth";
+    const PLAYERS_STORAGE_KEY = "megaxodia_players";
     
     let isAuthenticated = localStorage.getItem(STORAGE_KEY) === "true";
     let lastShuffleHash = null;
@@ -74,11 +68,41 @@ document.addEventListener("DOMContentLoaded", function () {
     let teamOption = "both";
     let revealedOnClick = new Set();
     let draggedPlayerId = null;
-    let isLoading = false;
+
+    // ========== FUNÇ?ES DE ARMAZENAMENTO LOCAL ================
+    
+    function loadPlayersFromStorage() {
+        const stored = localStorage.getItem(PLAYERS_STORAGE_KEY);
+        if (stored) {
+            registeredPlayers = JSON.parse(stored);
+            // Garantir que cada player tenha um id único
+            registeredPlayers.forEach(p => {
+                if (!p.id) {
+                    p.id = p._id || crypto.randomUUID();
+                }
+            });
+        } else {
+            // Dados de exemplo para demonstraç?o
+            registeredPlayers = [
+                { id: crypto.randomUUID(), name: "João", top: 4, jg: 3, mid: 5, adc: 2, sup: 3 },
+                { id: crypto.randomUUID(), name: "Maria", top: 3, jg: 4, mid: 3, adc: 5, sup: 4 },
+                { id: crypto.randomUUID(), name: "Pedro", top: 5, jg: 3, mid: 4, adc: 3, sup: 2 },
+                { id: crypto.randomUUID(), name: "Ana", top: 2, jg: 5, mid: 3, adc: 4, sup: 3 }
+            ];
+            savePlayersToStorage();
+        }
+        
+        registeredPlayers = sortPlayersAlphabetically(registeredPlayers);
+    }
+    
+    function savePlayersToStorage() {
+        localStorage.setItem(PLAYERS_STORAGE_KEY, JSON.stringify(registeredPlayers));
+    }
+    
+    // ========== FUNÇ?O DE AUTENTICAÇ?O ========================
     let pendingAction = null;
     let pendingData = null;
-
-    // ========== FUNÇÃO DE AUTENTICAÇÃO ========================
+    
     function showPasswordModal(action, data = null) {
         pendingAction = action;
         pendingData = data;
@@ -153,123 +177,7 @@ document.addEventListener("DOMContentLoaded", function () {
         return false;
     }
 
-    // ========== API FUNCTIONS =================================
-    
-    async function fetchPlayersFromAPI() {
-        try {
-            const response = await fetch(`${API_URL}/jogador`);
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            return await response.json();
-        } catch (error) {
-            console.error("Erro ao buscar jogadores:", error);
-            return [];
-        }
-    }
-    
-    async function savePlayerToAPI(player) {
-        try {
-            let url = `${API_URL}/jogador`;
-            let method = "POST";
-            
-            if (player._id) {
-                url = `${API_URL}/jogador/${player._id}`;
-                method = "PUT";
-            }
-            
-            const response = await fetch(url, {
-                method: method,
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    name: player.name,
-                    top: player.top,
-                    jg: player.jg,
-                    mid: player.mid,
-                    adc: player.adc,
-                    sup: player.sup
-                })
-            });
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            return await response.json();
-        } catch (error) {
-            console.error("Erro ao salvar jogador:", error);
-            return null;
-        }
-    }
-    
-    async function deletePlayerFromAPI(id) {
-        try {
-            const response = await fetch(`${API_URL}/jogador/${id}`, { method: "DELETE" });
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            return true;
-        } catch (error) {
-            console.error("Erro ao deletar jogador:", error);
-            return false;
-        }
-    }
-    
-    async function loadPlayersFromAPI() {
-        isLoading = true;
-        showLoading("Carregando jogadores...");
-        
-        try {
-            const players = await fetchPlayersFromAPI();
-            if (players && players.length > 0) {
-                registeredPlayers = players.map(p => ({
-                    ...p,
-                    id: p._id
-                }));
-            } else {
-                registeredPlayers = [];
-            }
-            
-            registeredPlayers = sortPlayersAlphabetically(registeredPlayers);
-            renderPlayersList();
-            renderAvailablePlayers();
-            renderSelectedPlayers();
-        } catch (error) {
-            console.error("Erro ao carregar jogadores:", error);
-            alert("Erro ao carregar dados do banco.");
-        } finally {
-            hideLoading();
-            isLoading = false;
-        }
-    }
-    
-    function showLoading(message) {
-        let loadingDiv = document.getElementById("loading-overlay");
-        if (!loadingDiv) {
-            loadingDiv = document.createElement("div");
-            loadingDiv.id = "loading-overlay";
-            loadingDiv.style.cssText = `
-                position: fixed;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 100%;
-                background: rgba(0,0,0,0.8);
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                z-index: 9999;
-                color: white;
-                font-size: 1.2rem;
-            `;
-            loadingDiv.innerHTML = `<div style="background:#333; padding:20px; border-radius:10px;">${message}</div>`;
-            document.body.appendChild(loadingDiv);
-        } else {
-            loadingDiv.querySelector("div").innerHTML = message;
-            loadingDiv.style.display = "flex";
-        }
-    }
-    
-    function hideLoading() {
-        const loadingDiv = document.getElementById("loading-overlay");
-        if (loadingDiv) {
-            loadingDiv.style.display = "none";
-        }
-    }
-
-    // ========== FUNÇÕES DE ORDENAÇÃO ==========================
+    // ========== FUNÇ?ES DE ORDENAÇ?O ==========================
     function sortPlayersAlphabetically(players) {
         return [...players].sort((a, b) => a.name.localeCompare(b.name));
     }
@@ -318,7 +226,10 @@ document.addEventListener("DOMContentLoaded", function () {
         r.addEventListener("change", function () { teamOption = this.value; }));
 
     initStarRatings();
-    loadPlayersFromAPI();
+    loadPlayersFromStorage();
+    renderPlayersList();
+    renderAvailablePlayers();
+    renderSelectedPlayers();
 
     // ==========================================================
     //  NAVIGATION
@@ -440,23 +351,30 @@ document.addEventListener("DOMContentLoaded", function () {
         ROLES.forEach(r => { scores[r] = parseInt(document.getElementById("score-" + r).value) || 3; });
 
         const id = editPlayerId.value;
-        let playerData = { name, ...scores };
         
         if (id) {
-            const existing = registeredPlayers.find(p => p.id === id);
-            if (existing && existing._id) playerData._id = existing._id;
-        }
-        
-        showLoading("Salvando jogador...");
-        const saved = await savePlayerToAPI(playerData);
-        hideLoading();
-        
-        if (saved) {
-            await loadPlayersFromAPI();
-            closeForm();
+            // Update existing player
+            const index = registeredPlayers.findIndex(p => p.id === id);
+            if (index !== -1) {
+                registeredPlayers[index] = { ...registeredPlayers[index], name, ...scores };
+            }
         } else {
-            alert("Erro ao salvar jogador. Tente novamente.");
+            // Create new player
+            const newPlayer = {
+                id: crypto.randomUUID(),
+                name,
+                ...scores
+            };
+            registeredPlayers.push(newPlayer);
         }
+        
+        registeredPlayers = sortPlayersAlphabetically(registeredPlayers);
+        savePlayersToStorage();
+        
+        renderPlayersList();
+        renderAvailablePlayers();
+        renderSelectedPlayers();
+        closeForm();
     }
 
     async function confirmDeletePlayer(id) {
@@ -464,16 +382,14 @@ document.addEventListener("DOMContentLoaded", function () {
         
         if (!confirm("Remover este jogador?")) return;
         
-        showLoading("Removendo jogador...");
-        const success = await deletePlayerFromAPI(id);
-        hideLoading();
+        registeredPlayers = registeredPlayers.filter(p => p.id !== id);
+        selectedForSorteio = selectedForSorteio.filter(x => x !== id);
         
-        if (success) {
-            selectedForSorteio = selectedForSorteio.filter(x => x !== id);
-            await loadPlayersFromAPI();
-        } else {
-            alert("Erro ao remover jogador. Tente novamente.");
-        }
+        savePlayersToStorage();
+        
+        renderPlayersList();
+        renderAvailablePlayers();
+        renderSelectedPlayers();
     }
 
     function deletePlayer(id) {
@@ -929,7 +845,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 statusText = 'desbalanceado';
             } else if (diff >= 2) {
                 statusColor = '#FFC107';
-                statusText = 'atenção';
+                statusText = 'atenç?o';
             }
             
             const bluePercent = (blueScore / 5) * 100;
@@ -1327,7 +1243,6 @@ document.addEventListener("DOMContentLoaded", function () {
                 const rows = XLSX.utils.sheet_to_json(ws, { defval: "" });
 
                 let added = 0, updated = 0, skipped = 0;
-                showLoading("Importando jogadores...");
 
                 for (const row of rows) {
                     const name = (row["Nome"] || row["name"] || "").toString().trim();
@@ -1357,21 +1272,30 @@ document.addEventListener("DOMContentLoaded", function () {
                     };
 
                     if (existingPlayer) {
-                        playerData._id = existingPlayer._id;
-                        await savePlayerToAPI(playerData);
+                        existingPlayer.name = playerData.name;
+                        existingPlayer.top = playerData.top;
+                        existingPlayer.jg = playerData.jg;
+                        existingPlayer.mid = playerData.mid;
+                        existingPlayer.adc = playerData.adc;
+                        existingPlayer.sup = playerData.sup;
                         updated++;
                     } else {
-                        await savePlayerToAPI(playerData);
+                        playerData.id = crypto.randomUUID();
+                        registeredPlayers.push(playerData);
                         added++;
                     }
                 }
 
-                await loadPlayersFromAPI();
-                hideLoading();
+                registeredPlayers = sortPlayersAlphabetically(registeredPlayers);
+                savePlayersToStorage();
+                
+                renderPlayersList();
+                renderAvailablePlayers();
+                renderSelectedPlayers();
+                
                 alert(`Importacao concluida!\n${added} adicionados, ${updated} atualizados, ${skipped} ignorados.`);
                 
             } catch (err) {
-                hideLoading();
                 alert("Erro ao importar Excel: " + err.message);
             }
         };
