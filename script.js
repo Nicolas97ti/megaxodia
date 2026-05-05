@@ -10,7 +10,7 @@ document.addEventListener("DOMContentLoaded", function () {
     const STORAGE_KEY = "megaxodia_auth";
     const PLAYERS_STORAGE_KEY = "megaxodia_players";
     
-    let isAuthenticated = localStorage.getItem(STORAGE_KEY) === "true";
+    let isAuthenticated = true;
     let lastShuffleHash = null;
     
     // ========== NAVEGACAO ====================================
@@ -75,19 +75,31 @@ document.addEventListener("DOMContentLoaded", function () {
         const stored = localStorage.getItem(PLAYERS_STORAGE_KEY);
         if (stored) {
             registeredPlayers = JSON.parse(stored);
-            // Garantir que cada player tenha um id único
             registeredPlayers.forEach(p => {
                 if (!p.id) {
                     p.id = p._id || crypto.randomUUID();
                 }
             });
         } else {
-            // Dados de exemplo para demonstraç?o
             registeredPlayers = [
-                { id: crypto.randomUUID(), name: "João", top: 4, jg: 3, mid: 5, adc: 2, sup: 3 },
-                { id: crypto.randomUUID(), name: "Maria", top: 3, jg: 4, mid: 3, adc: 5, sup: 4 },
-                { id: crypto.randomUUID(), name: "Pedro", top: 5, jg: 3, mid: 4, adc: 3, sup: 2 },
-                { id: crypto.randomUUID(), name: "Ana", top: 2, jg: 5, mid: 3, adc: 4, sup: 3 }
+                { id: crypto.randomUUID(), name: "Nicolas", top: 4, jg: 3, mid: 2, adc: 3, sup: 3 },
+                { id: crypto.randomUUID(), name: "Bugboss", top: 2, jg: 2, mid: 2, adc: 2, sup: 3 },
+                { id: crypto.randomUUID(), name: "Mewkas", top: 4, jg: 4, mid: 5, adc: 5, sup: 4 },
+                { id: crypto.randomUUID(), name: "Davil", top: 3, jg: 3, mid: 3, adc: 5, sup: 4 },
+                { id: crypto.randomUUID(), name: "Erao", top: 3, jg: 2, mid: 3, adc: 2, sup: 4 },
+                { id: crypto.randomUUID(), name: "Caio", top: 3, jg: 4, mid: 3, adc: 3, sup: 3 },
+                { id: crypto.randomUUID(), name: "Eboy", top: 4, jg: 5, mid: 5, adc: 5, sup: 2 },
+                { id: crypto.randomUUID(), name: "Giva", top: 1, jg: 1, mid: 1, adc: 1, sup: 2 },
+                { id: crypto.randomUUID(), name: "Dalto", top: 5, jg: 3, mid: 3, adc: 5, sup: 5 },
+                { id: crypto.randomUUID(), name: "Capivara", top: 3, jg: 5, mid: 2, adc: 2, sup: 4 },
+                { id: crypto.randomUUID(), name: "Liloca", top: 2, jg: 1, mid: 2, adc: 1, sup: 2 },
+                { id: crypto.randomUUID(), name: "Antonio", top: 3, jg: 4, mid: 2, adc: 4, sup: 4 },
+                { id: crypto.randomUUID(), name: "Cadu", top: 2, jg: 3, mid: 3, adc: 3, sup: 4 },
+                { id: crypto.randomUUID(), name: "Dods", top: 3, jg: 2, mid: 4, adc: 2, sup: 3 },
+                { id: crypto.randomUUID(), name: "Emano", top: 2, jg: 4, mid: 3, adc: 2, sup: 2 },
+                { id: crypto.randomUUID(), name: "Pedro", top: 3, jg: 2, mid: 2, adc: 3, sup: 3 },
+                { id: crypto.randomUUID(), name: "Well", top: 2, jg: 2, mid: 5, adc: 2, sup: 3 },
+                { id: crypto.randomUUID(), name: "Gordeta", top: 3, jg: 3, mid: 2, adc: 2, sup: 2 }
             ];
             savePlayersToStorage();
         }
@@ -99,85 +111,10 @@ document.addEventListener("DOMContentLoaded", function () {
         localStorage.setItem(PLAYERS_STORAGE_KEY, JSON.stringify(registeredPlayers));
     }
     
-    // ========== FUNÇ?O DE AUTENTICAÇ?O ========================
-    let pendingAction = null;
-    let pendingData = null;
-    
-    function showPasswordModal(action, data = null) {
-        pendingAction = action;
-        pendingData = data;
-        
-        let modal = document.getElementById("password-modal");
-        if (!modal) {
-            modal = document.createElement("div");
-            modal.id = "password-modal";
-            modal.style.cssText = `
-                position: fixed;
-                top: 0;
-                left: 0;
-                width: 100%;
-                height: 100%;
-                background: rgba(0,0,0,0.9);
-                display: flex;
-                justify-content: center;
-                align-items: center;
-                z-index: 10000;
-            `;
-            modal.innerHTML = `
-                <div style="background: #333; padding: 30px; border-radius: 10px; min-width: 300px; text-align: center;">
-                    <h3 style="color: #D4AF37; margin-bottom: 20px;">Acesso Restrito</h3>
-                    <p style="margin-bottom: 15px;">Digite a senha para ${action === 'edit' ? 'editar' : 'excluir'} o jogador:</p>
-                    <input type="password" id="password-input" placeholder="Senha" style="width: 100%; padding: 10px; margin-bottom: 20px; border-radius: 5px; border: none;">
-                    <div style="display: flex; gap: 10px; justify-content: center;">
-                        <button id="password-confirm" class="cta-button">Confirmar</button>
-                        <button id="password-cancel" class="secondary-button">Cancelar</button>
-                    </div>
-                </div>
-            `;
-            document.body.appendChild(modal);
-        }
-        modal.style.display = "flex";
-        
-        const input = document.getElementById("password-input");
-        input.value = "";
-        input.focus();
-        
-        document.getElementById("password-confirm").onclick = () => {
-            const password = input.value;
-            if (password === ADMIN_PASSWORD) {
-                isAuthenticated = true;
-                localStorage.setItem(STORAGE_KEY, "true");
-                modal.style.display = "none";
-                if (pendingAction === 'edit' && pendingData) {
-                    openEditPlayerForm(pendingData);
-                } else if (pendingAction === 'delete' && pendingData) {
-                    confirmDeletePlayer(pendingData);
-                } else if (pendingAction === 'import') {
-                    executeExcelImport(pendingData);
-                }
-            } else {
-                alert("Senha incorreta!");
-                input.value = "";
-                input.focus();
-            }
-        };
-        
-        document.getElementById("password-cancel").onclick = () => {
-            modal.style.display = "none";
-            pendingAction = null;
-            pendingData = null;
-        };
-    }
-    
     function checkAuth(action, data = null) {
-        if (isAuthenticated) {
-            return true;
-        }
-        showPasswordModal(action, data);
-        return false;
+        return true;
     }
 
-    // ========== FUNÇ?ES DE ORDENAÇ?O ==========================
     function sortPlayersAlphabetically(players) {
         return [...players].sort((a, b) => a.name.localeCompare(b.name));
     }
@@ -206,14 +143,18 @@ document.addEventListener("DOMContentLoaded", function () {
     playerSearch.addEventListener("input", renderPlayersList);
     sorteadorSearch.addEventListener("input", renderAvailablePlayers);
     excelImport.addEventListener("change", (e) => {
-        if (checkAuth('import', e)) {
-            handleExcelImport(e);
-        }
+        handleExcelImport(e);
     });
     btnExportExcel.addEventListener("click", handleExcelExport);
     
     if (addAllBtn) addAllBtn.addEventListener("click", addAllToSorteio);
     if (removeAllBtn) removeAllBtn.addEventListener("click", removeAllFromSorteio);
+
+    // Adicionar evento para o novo botão
+    const newShuffleButtonBelow = document.getElementById("new-shuffle-button-below");
+    if (newShuffleButtonBelow) {
+        newShuffleButtonBelow.addEventListener("click", resetShuffle);
+    }
 
     document.querySelectorAll("input[name='revealMode']").forEach(r =>
         r.addEventListener("change", function () { 
@@ -353,13 +294,11 @@ document.addEventListener("DOMContentLoaded", function () {
         const id = editPlayerId.value;
         
         if (id) {
-            // Update existing player
             const index = registeredPlayers.findIndex(p => p.id === id);
             if (index !== -1) {
                 registeredPlayers[index] = { ...registeredPlayers[index], name, ...scores };
             }
         } else {
-            // Create new player
             const newPlayer = {
                 id: crypto.randomUUID(),
                 name,
@@ -832,8 +771,7 @@ document.addEventListener("DOMContentLoaded", function () {
             const bluePlayer = teams.blue.find(p => p.position === role);
             const redPlayer = teams.red.find(p => p.position === role);
             
-            const blueName = bluePlayer ? bluePlayer.name : "Vazio";
-            const redName = redPlayer ? redPlayer.name : "Vazio";
+            // ALTERADO: Mostrar apenas a pontuação nos confrontos, sem nomes
             const blueScore = blueScores[role] || 0;
             const redScore = redScores[role] || 0;
             const diff = Math.abs(blueScore - redScore);
@@ -845,7 +783,7 @@ document.addEventListener("DOMContentLoaded", function () {
                 statusText = 'desbalanceado';
             } else if (diff >= 2) {
                 statusColor = '#FFC107';
-                statusText = 'atenç?o';
+                statusText = 'atencao';
             }
             
             const bluePercent = (blueScore / 5) * 100;
@@ -866,13 +804,13 @@ document.addEventListener("DOMContentLoaded", function () {
                         <div style="width: ${scoreWidth}; text-align: center;"></div>
                         <div style="flex: 1; margin-left: ${gapWidth};">
                             <div style="text-align: right; padding-right: 8px;">
-                                <span style="color: #1E90FF; font-weight: 500;">${escapeHtml(blueName)}</span>
+                                <span style="color: #1E90FF; font-weight: 500;">Time Azul</span>
                             </div>
                         </div>
                         <div style="width: ${vsWidth}; text-align: center; color: #888; font-weight: bold;">vs</div>
                         <div style="flex: 1; margin-right: ${gapWidth};">
                             <div style="text-align: left; padding-left: 8px;">
-                                <span style="color: #FF4500; font-weight: 500;">${escapeHtml(redName)}</span>
+                                <span style="color: #FF4500; font-weight: 500;">Time Vermelho</span>
                             </div>
                         </div>
                         <div style="width: ${scoreWidth}; text-align: center;"></div>
@@ -1075,6 +1013,21 @@ document.addEventListener("DOMContentLoaded", function () {
         revealedOnClick.forEach(key => { if (key.startsWith(teamColor + "-")) revealedOnClick.delete(key); });
         updateTeamDisplay(teamColor);
         updateMapDisplay(teamColor);
+        if (balanceToggle && balanceToggle.checked && selectedForSorteio.length === 10) {
+            const blueScoresByRole = {};
+            const redScoresByRole = {};
+            let blueTotal = 0;
+            let redTotal = 0;
+            for (const role of POSITIONS) {
+                const bluePlayer = teams.blue.find(p => p.position === role);
+                const redPlayer = teams.red.find(p => p.position === role);
+                blueScoresByRole[role] = bluePlayer ? bluePlayer.score : 0;
+                redScoresByRole[role] = redPlayer ? redPlayer.score : 0;
+                blueTotal += blueScoresByRole[role];
+                redTotal += redScoresByRole[role];
+            }
+            showDetailedBalanceInfo(blueScoresByRole, redScoresByRole, blueTotal, redTotal);
+        }
     }
 
     function updateTeamDisplay(teamColor) {
@@ -1093,7 +1046,8 @@ document.addEventListener("DOMContentLoaded", function () {
                 if (revealedOnClick.has(`${teamColor}-${index}`)) {
                     nameEl.textContent = teams[teamColor][index].name;
                 } else {
-                    nameEl.textContent = "???";
+                    // ALTERADO: Mostrar apenas a posição, sem "???"
+                    nameEl.innerHTML = '';
                 }
             }
         });
@@ -1115,7 +1069,8 @@ document.addEventListener("DOMContentLoaded", function () {
                 if (revealedOnClick.has(`${teamColor}-${index}`)) {
                     nameEl.textContent = teams[teamColor][index].name;
                 } else {
-                    nameEl.textContent = "???";
+                    // ALTERADO: Mostrar apenas a posição, sem "???"
+                    nameEl.innerHTML = '';
                 }
             }
         });
@@ -1126,6 +1081,21 @@ document.addEventListener("DOMContentLoaded", function () {
         updateTeamDisplay("red");
         updateMapDisplay("blue");
         updateMapDisplay("red");
+        if (balanceToggle && balanceToggle.checked && selectedForSorteio.length === 10) {
+            const blueScoresByRole = {};
+            const redScoresByRole = {};
+            let blueTotal = 0;
+            let redTotal = 0;
+            for (const role of POSITIONS) {
+                const bluePlayer = teams.blue.find(p => p.position === role);
+                const redPlayer = teams.red.find(p => p.position === role);
+                blueScoresByRole[role] = bluePlayer ? bluePlayer.score : 0;
+                redScoresByRole[role] = redPlayer ? redPlayer.score : 0;
+                blueTotal += blueScoresByRole[role];
+                redTotal += redScoresByRole[role];
+            }
+            showDetailedBalanceInfo(blueScoresByRole, redScoresByRole, blueTotal, redTotal);
+        }
     }
 
     function handlePlayerClick(event) {
@@ -1155,6 +1125,22 @@ document.addEventListener("DOMContentLoaded", function () {
         if (mapPos) {
             const nameEl = mapPos.querySelector(".player-name");
             if (nameEl) nameEl.textContent = teams[team][index].name;
+        }
+        
+        if (balanceToggle && balanceToggle.checked && selectedForSorteio.length === 10) {
+            const blueScoresByRole = {};
+            const redScoresByRole = {};
+            let blueTotal = 0;
+            let redTotal = 0;
+            for (const role of POSITIONS) {
+                const bluePlayer = teams.blue.find(p => p.position === role);
+                const redPlayer = teams.red.find(p => p.position === role);
+                blueScoresByRole[role] = bluePlayer ? bluePlayer.score : 0;
+                redScoresByRole[role] = redPlayer ? redPlayer.score : 0;
+                blueTotal += blueScoresByRole[role];
+                redTotal += redScoresByRole[role];
+            }
+            showDetailedBalanceInfo(blueScoresByRole, redScoresByRole, blueTotal, redTotal);
         }
     }
 
@@ -1228,7 +1214,7 @@ document.addEventListener("DOMContentLoaded", function () {
     }
 
     // ==========================================================
-    //  EXCEL IMPORT/EXPORT (Com senha)
+    //  EXCEL IMPORT/EXPORT
     // ==========================================================
     async function executeExcelImport(event) {
         const file = event.target.files[0];
